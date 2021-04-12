@@ -9,5 +9,7 @@ cd cifar (Work Directory)
 
 # local environment settings
 pyenv local 3.6.9
+poetry config virtualenvs.create true --local
+poetry config virtualenvs.in-project true --local
 
 ```
