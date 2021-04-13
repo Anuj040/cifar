@@ -138,7 +138,7 @@ class Cifar:
         encoded_features = self.encoder_model(input_tensor)
 
         encoded_flat = KL.Flatten()(encoded_features)
-        probs = KL.Dense(num_classes, activation="sigmoid")(encoded_flat)
+        probs = KL.Dense(num_classes, activation="sigmoid", name="logits")(encoded_flat)
 
         return KM.Model(inputs=input_tensor, outputs=probs, name="classifier")
 
@@ -175,7 +175,6 @@ class Cifar:
 
         # prepare the generator
         train_generator = DataGenerator(shuffle=True, train_mode="pretrain")
-
         # number of trainig steps per epoch
         train_steps = len(train_generator)
         self.model.fit(
