@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "cifar"
+version = "0.1.0"
+description = ""
+authors = ["Anuj Arora <anujarora920804@gmail.com>"]
+
+[tool.poetry.dependencies]
+python = "3.6.9"
+tensorflow-datasets = "^4.2.0"
+tensorflow = "2.2.0"
+pandas = "1.1.5"
+
+[tool.poetry.dev-dependencies]
+black = "^20.8b1"
+matplotlib = "3.3.4"
+pytest = "^6.2.3"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
