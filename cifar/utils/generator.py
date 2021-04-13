@@ -45,15 +45,29 @@ def allowed_id_list(
 
 
 class DataGenerator:
+    """Train/test dataset generator class
+
+    Args:
+        split (str, optional): dataset split to use. Defaults to "train".
+        train_mode (str, optional): Training feature extractor or classifier. Defaults to "pretrain".
+        batch_size (int, optional): Defaults to 32.
+        shuffle (bool, optional): whether to shuffle the dataset. Defaults to False.
+        cache (bool, optional): dataset will be cached or not. Defaults to False.
+        buffer_multiplier (int, optional): Buffer to maintain for faster training. Defaults to 5.
+
+    """
+
     def __init__(
         self,
         split: str = "train",
+        train_mode: str = "pretrain",
         batch_size: int = 32,
         shuffle: bool = False,
         cache: bool = False,
         buffer_multiplier: int = 5,
     ) -> None:
         self.split = split
+        self.train_mode = train_mode
 
         # Retrieve the dataset
         ds, ds_info = tfds.load("cifar10", split=split, with_info=True)
@@ -143,6 +157,11 @@ class DataGenerator:
         Returns:
             Tuple[tf.Tensor, tf.Tensor]: input/output tensor pair
         """
+        if self.split == "train" and self.train_mode == "pretrain":
+            return (
+                2.0 * tf.cast(input["image"], tf.float32) / 255.0 - 1.0,
+                2.0 * tf.cast(input["image"], tf.float32) / 255.0 - 1.0,
+            )
         return (
             2.0 * tf.cast(input["image"], tf.float32) / 255.0 - 1.0,
             tf.one_hot(input["label"], self.num_classes),
@@ -160,5 +179,5 @@ class DataGenerator:
 
 
 if __name__ == "__main__":
-    train_generator = DataGenerator(shuffle=True)
+    train_generator = DataGenerator(shuffle=True, train_mode="pretrain")
     test_generator = DataGenerator(split="test")
