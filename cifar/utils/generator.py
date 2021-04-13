@@ -71,6 +71,46 @@ class DataGenerator:
             # List of image ids to be used for training for the imabalanced labels
             allowed_ids = allowed_id_list(ds, screened_labels_id, imbalance_sample_size)
 
+            def _predicate(
+                input: dict,
+                check_labels=tf.constant(screened_labels_id),
+                allowed_ids=tf.constant(allowed_ids),
+            ) -> bool:
+                """method to filter the dataset for screened labels and their corresponding id list
+
+                Args:
+                    input (dict): an element from the dataset
+                    check_labels (tf.constant, optional): labels to be screened. Defaults to tf.constant(screened_labels_id).
+                    allowed_ids (tf.constant, optional): retained ids for screened labels. Defaults to tf.constant(allowed_ids).
+
+                Returns:
+                    bool: wether to use this particular sample or not
+                """
+                # Extract image id and label
+                id, label = (
+                    input["id"],
+                    input["label"],
+                )
+                # check if the label matches one of the screened labels
+                screen_labels = tf.equal(
+                    check_labels, tf.cast(label, check_labels.dtype)
+                )
+                # check if the ids match one of the allowed ids for screened labels
+                screen_ids = tf.equal(allowed_ids, tf.cast(id, allowed_ids.dtype))
+
+                # check if a match has been detected
+                reduced_ids = tf.reduce_sum(tf.cast(screen_ids, tf.float32))
+                reduced_labels = tf.reduce_sum(tf.cast(screen_labels, tf.float32))
+
+                return tf.cond(
+                    reduced_labels
+                    > 0,  # for screened labels id needs to be an allowed one
+                    lambda: tf.greater(reduced_ids * reduced_labels, tf.constant(0.0)),
+                    lambda: True,  # For non-screened labels
+                )
+
+            ds = ds.filter(_predicate)
+
 
 if __name__ == "__main__":
     generator = DataGenerator()
