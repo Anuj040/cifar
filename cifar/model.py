@@ -146,7 +146,9 @@ class Cifar:
         self.model.compile(
             optimizer=tf.keras.optimizers.Adam(), loss="mse", metrics="mae"
         )
-        cce = tf.keras.losses.CategoricalCrossentropy(from_logits=True)
+        cce = tf.keras.losses.CategoricalCrossentropy(
+            from_logits=True, label_smoothing=0.1
+        )
         self.classifier.compile(
             optimizer=tf.keras.optimizers.Adam(), loss=cce, metrics="accuracy"
         )
