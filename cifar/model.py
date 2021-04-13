@@ -1,6 +1,11 @@
+import sys
+
+sys.path.append("./")
 import tensorflow as tf
 import tensorflow.keras.layers as KL
 import tensorflow.keras.models as KM
+
+from cifar.utils.generator import DataGenerator
 
 
 class Cifar:
@@ -121,6 +126,37 @@ class Cifar:
 
         return KM.Model(inputs=input_tensor, outputs=decoded, name="AutoEncoder")
 
+    def compile(self):
+        """method to compile the model object with optimizer, loss definitions and metrics"""
+        self.model.compile(
+            optimizer=tf.keras.optimizers.Adam(), loss="mse", metrics="mae"
+        )
+
+    def train(self, epochs: int = 10):
+        """method to initiate model training
+
+        Args:
+            epochs (int, optional): total number of training epochs. Defaults to 10.
+        """
+
+        # compile the model object
+        self.compile()
+
+        # prepare the generator
+        train_generator = DataGenerator(shuffle=True, train_mode="pretrain")
+
+        # number of trainig steps per epoch
+        train_steps = len(train_generator)
+        self.model.fit(
+            train_generator(),
+            initial_epoch=0,
+            epochs=epochs,
+            workers=8,
+            verbose=1,
+            steps_per_epoch=train_steps,
+        )
+
 
 if __name__ == "__main__":
     model = Cifar()
+    model.train()
