@@ -190,7 +190,7 @@ class Cifar:
         train_generator_classifier = DataGenerator(
             shuffle=True, train_mode="classifier"
         )
-
+        self.encoder_model.trainable = False
         self.classifier.fit(
             train_generator_classifier(),
             initial_epoch=0,
