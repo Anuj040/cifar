@@ -11,6 +11,7 @@ from cifar.utils.generator import DataGenerator
 class Cifar:
     def __init__(self) -> None:
         self.model = self.build()
+        self.classifier = self.build_classify(num_classes=10)
 
     def encoder(self, features=[8], name="encoder") -> KM.Model:
         """Creates an encoder model object
@@ -110,7 +111,7 @@ class Cifar:
         decoder_features.reverse()
 
         # build the encoder model
-        encoder = self.encoder(features=encoder_features, name="encoder")
+        self.encoder_model = self.encoder(features=encoder_features, name="encoder")
 
         # build the decoder model
         decoder = self.decoder(features=decoder_features, name="decoder")
@@ -120,16 +121,34 @@ class Cifar:
         )  # shape of images for cifar10 dataset
 
         # Encode the images
-        encoded = encoder(input_tensor)
+        encoded = self.encoder_model(input_tensor)
         # Decode the image
         decoded = decoder(encoded)
 
         return KM.Model(inputs=input_tensor, outputs=decoded, name="AutoEncoder")
 
+    def build_classify(self, num_classes: int = 10) -> KM.Model:
+        """Method to build classifier model
+
+        Returns:
+            KM.Model: Classifier model
+        """
+        input_tensor = KL.Input(shape=(32, 32, 3))
+        encoded_features = self.encoder_model(input_tensor)
+
+        encoded_flat = KL.Flatten()(encoded_features)
+        probs = KL.Dense(num_classes, activation="sigmoid")(encoded_flat)
+
+        return KM.Model(inputs=input_tensor, outputs=probs, name="classifier")
+
     def compile(self):
         """method to compile the model object with optimizer, loss definitions and metrics"""
         self.model.compile(
             optimizer=tf.keras.optimizers.Adam(), loss="mse", metrics="mae"
+        )
+        cce = tf.keras.losses.CategoricalCrossentropy(from_logits=True)
+        self.classifier.compile(
+            optimizer=tf.keras.optimizers.Adam(), loss=cce, metrics="accuracy"
         )
 
     def train(self, epochs: int = 10):
@@ -152,7 +171,21 @@ class Cifar:
             initial_epoch=0,
             epochs=epochs,
             workers=8,
-            verbose=1,
+            verbose=2,
+            steps_per_epoch=train_steps,
+        )
+
+        # prepare the generators for classifier training
+        train_generator_classifier = DataGenerator(
+            shuffle=True, train_mode="classifier"
+        )
+
+        self.classifier.fit(
+            train_generator_classifier(),
+            initial_epoch=0,
+            epochs=epochs,
+            workers=8,
+            verbose=2,
             steps_per_epoch=train_steps,
         )
 
