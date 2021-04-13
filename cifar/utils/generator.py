@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import numpy as np
 import tensorflow as tf
 import tensorflow.keras.backend as K
@@ -43,7 +45,15 @@ def allowed_id_list(
 
 
 class DataGenerator:
-    def __init__(self, split: str = "train") -> None:
+    def __init__(
+        self,
+        split: str = "train",
+        batch_size: int = 32,
+        shuffle: bool = False,
+        cache: bool = False,
+        buffer_multiplier: int = 5,
+    ) -> None:
+        self.split = split
 
         # Retrieve the dataset
         ds, ds_info = tfds.load("cifar10", split=split, with_info=True)
@@ -61,6 +71,9 @@ class DataGenerator:
             "ship",
             "truck",
         ]
+        # Get the number of disctinct labels
+        self.num_classes = len(labels)
+
         if split == "train":
             # Labels with fewer training samples (imbalanced labels)
             screened_labels = ["bird", "deer", "truck"]
@@ -110,7 +123,42 @@ class DataGenerator:
                 )
 
             ds = ds.filter(_predicate)
+            if shuffle:
+                ds = ds.shuffle(batch_size * buffer_multiplier)
+            if cache:
+                ds = ds.cache()
+
+        ds = ds.map(self.map_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+        ds = ds.batch(batch_size, drop_remainder=split == "train").prefetch(
+            tf.data.experimental.AUTOTUNE
+        )
+        self.ds = ds
+
+    def map_fn(self, input: dict) -> Tuple[tf.Tensor, tf.Tensor]:
+        """method to transform the dataset elements to model usable form
+
+        Args:
+            input (dict): an element from the dataset
+
+        Returns:
+            Tuple[tf.Tensor, tf.Tensor]: input/output tensor pair
+        """
+        return (
+            2.0 * tf.cast(input["image"], tf.float32) / 255.0 - 1.0,
+            tf.one_hot(input["label"], self.num_classes),
+        )
+
+    def __call__(self, *args, **kwargs) -> tf.data.Dataset:
+        if self.split == "train":
+            return self.ds.repeat(-1)  # Batch repition over epochs
+        else:
+            return self.ds
+
+    def __len__(self) -> int:
+        # Get the total number of batches
+        return len(list(self.ds))
 
 
 if __name__ == "__main__":
-    generator = DataGenerator()
+    train_generator = DataGenerator(shuffle=True)
+    test_generator = DataGenerator(split="test")
