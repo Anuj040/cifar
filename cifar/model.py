@@ -6,6 +6,7 @@ import tensorflow.keras.layers as KL
 import tensorflow.keras.models as KM
 
 from cifar.utils.generator import DataGenerator
+from cifar.utils.losses import categorical_focal_loss
 
 
 class Cifar:
@@ -141,27 +142,36 @@ class Cifar:
 
         return KM.Model(inputs=input_tensor, outputs=probs, name="classifier")
 
-    def compile(self):
-        """method to compile the model object with optimizer, loss definitions and metrics"""
+    def compile(self, classifier_loss: str = "focal"):
+        """method to compile the model object with optimizer, loss definitions and metrics
+
+        Args:
+            classifier_loss (str, optional): loss function to use for classifier training. Defaults to "focal".
+
+        """
         self.model.compile(
             optimizer=tf.keras.optimizers.Adam(), loss="mse", metrics="mae"
         )
         cce = tf.keras.losses.CategoricalCrossentropy(
             from_logits=True, label_smoothing=0.1
         )
+        focal = categorical_focal_loss()
         self.classifier.compile(
-            optimizer=tf.keras.optimizers.Adam(), loss=cce, metrics="accuracy"
+            optimizer=tf.keras.optimizers.Adam(),
+            loss=focal if classifier_loss == "focal" else cce,
+            metrics="accuracy",
         )
 
-    def train(self, epochs: int = 10):
+    def train(self, epochs: int = 10, classifier_loss: str = "focal"):
         """method to initiate model training
 
         Args:
             epochs (int, optional): total number of training epochs. Defaults to 10.
+            classifier_loss(str, optional): loss function for classifier training. Defaults to "focal
         """
 
         # compile the model object
-        self.compile()
+        self.compile(classifier_loss=classifier_loss)
 
         # prepare the generator
         train_generator = DataGenerator(shuffle=True, train_mode="pretrain")

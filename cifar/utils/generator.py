@@ -67,6 +67,7 @@ class DataGenerator:
         buffer_multiplier: int = 5,
     ) -> None:
         self.split = split
+        assert train_mode in ["pretrain", "classifier"]
         self.train_mode = train_mode
 
         # Retrieve the dataset
