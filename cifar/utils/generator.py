@@ -75,8 +75,19 @@ def image_augmenter(image: tf.Tensor) -> tf.Tensor:
     def flipud(image: tf.Tensor):
         return image[::-1, :, :]
 
+    def crop_and_resize(image: tf.Tensor) -> tf.Tensor:
+        """takes a random crop from the image and resize it to original image size"""
+
+        crop_proportion = 0.875
+        size = (int(32 * crop_proportion), int(32 * crop_proportion), 3)
+        image = tf.image.random_crop(image, size)
+        image = tf.image.resize(image, (32, 32))
+
+        return image
+
     image = random_apply(fliplr, p=0.5, image=image)
     image = random_apply(flipud, p=0.5, image=image)
+    image = random_apply(crop_and_resize, p=0.5, image=image)
 
     return image
 
@@ -193,10 +204,10 @@ class DataGenerator:
             elif train_mode == "pretrain" and split == "val":
                 raise Exception("Train dataset is split only for classifier training")
 
-        if shuffle:
-            ds = ds.shuffle(batch_size * buffer_multiplier)
         if cache:
             ds = ds.cache()
+        if shuffle:
+            ds = ds.shuffle(batch_size * buffer_multiplier)
 
         ds = ds.map(self.map_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
         ds = ds.batch(batch_size, drop_remainder=split == "train").prefetch(
@@ -214,22 +225,16 @@ class DataGenerator:
             Tuple[tf.Tensor, tf.Tensor]: input/output tensor pair
         """
         # Get the image array
-        image = input["image"]
+        image = 2.0 * tf.cast(input["image"], tf.float32) / 255.0 - 1.0
 
         # Whether to apply augmentation
         if self.augment:
             image = image_augmenter(image)
 
         if self.split == "train" and self.train_mode == "pretrain":
-            return (
-                2.0 * tf.cast(image, tf.float32) / 255.0 - 1.0,
-                2.0 * tf.cast(image, tf.float32) / 255.0 - 1.0,
-            )
+            return image, image
 
-        return (
-            2.0 * tf.cast(image, tf.float32) / 255.0 - 1.0,
-            tf.one_hot(input["label"], self.num_classes),
-        )
+        return image, tf.one_hot(input["label"], self.num_classes)
 
     def __call__(self, *args, **kwargs) -> tf.data.Dataset:
         if self.split == "train":
@@ -243,9 +248,11 @@ class DataGenerator:
 
 
 if __name__ == "__main__":
-    train_generator = DataGenerator(shuffle=True, train_mode="classifier")
-    test_generator = DataGenerator(split="test")
-    val_generator = DataGenerator(split="val", train_mode="classifier")
-    print(len(test_generator))
-    print(len(train_generator))
-    print(len(val_generator))
+    train_generator = DataGenerator(shuffle=True, augment=True, train_mode="classifier")
+    # test_generator = DataGenerator(split="test")
+    # val_generator = DataGenerator(split="val", train_mode="classifier")
+    # print(len(test_generator))
+    # print(len(train_generator))
+    # print(len(val_generator))
+    for a, _ in train_generator().take(1):
+        print(a)
