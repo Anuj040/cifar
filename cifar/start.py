@@ -14,11 +14,13 @@ flags.DEFINE_enum(
     "Whether to train encoder and classifier in succession or individually.",
 )
 
+flags.DEFINE_integer("epochs", 10, "number of training epochs")
+
 
 def main(argv):
 
     model = Cifar()
-    model.train()
+    model.train(epochs=FLAGS.epochs)
 
 
 if __name__ == "__main__":

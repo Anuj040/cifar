@@ -175,7 +175,9 @@ class Cifar:
         self.compile(classifier_loss=classifier_loss)
         if FLAGS.train_mode in ["both", "pretrain"]:
             # prepare the generator
-            train_generator = DataGenerator(shuffle=True, train_mode="pretrain")
+            train_generator = DataGenerator(
+                augment=True, shuffle=True, train_mode="pretrain"
+            )
             # number of trainig steps per epoch
             train_steps = len(train_generator)
             self.model.fit(
@@ -191,7 +193,7 @@ class Cifar:
 
             # prepare the generators for classifier training
             train_generator_classifier = DataGenerator(
-                split="train", shuffle=True, train_mode="classifier"
+                split="train", augment=True, shuffle=True, train_mode="classifier"
             )
             val_generator_classifier = DataGenerator(
                 split="val", train_mode="classifier"

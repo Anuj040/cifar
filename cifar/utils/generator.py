@@ -44,6 +44,43 @@ def allowed_id_list(
     return np.concatenate(allowed_ids)
 
 
+def random_apply(func, p: float, image: tf.Tensor) -> tf.Tensor:
+    """Randomly apply function func to image with probability p."""
+
+    return tf.cond(
+        tf.less(
+            tf.random.uniform([], minval=0, maxval=1, dtype=tf.float32),
+            tf.cast(p, tf.float32),
+        ),
+        lambda: func(image),
+        lambda: image,
+    )
+
+
+def image_augmenter(image: tf.Tensor) -> tf.Tensor:
+    """Augmenter method working on single images
+
+    Args:
+        image (tf.Tensor): single image tensor (shape = HWC)
+
+    Returns:
+        tf.Tensor: augmented image tensor
+    """
+
+    # Flip LR
+    def fliplr(image: tf.Tensor):
+        return image[:, ::-1, :]
+
+    # Flip UD
+    def flipud(image: tf.Tensor):
+        return image[::-1, :, :]
+
+    image = random_apply(fliplr, p=0.5, image=image)
+    image = random_apply(flipud, p=0.5, image=image)
+
+    return image
+
+
 class DataGenerator:
     """Train/test dataset generator class
 
@@ -51,6 +88,7 @@ class DataGenerator:
         split (str, optional): dataset split to use. Defaults to "train".
         train_mode (str, optional): Training feature extractor or classifier. Defaults to "pretrain".
         batch_size (int, optional): Defaults to 32.
+        augment (bool, optional): whether to augment the images. Defaults to False.
         shuffle (bool, optional): whether to shuffle the dataset. Defaults to False.
         cache (bool, optional): dataset will be cached or not. Defaults to False.
         buffer_multiplier (int, optional): Buffer to maintain for faster training. Defaults to 5.
@@ -62,6 +100,7 @@ class DataGenerator:
         split: str = "train",
         train_mode: str = "pretrain",
         batch_size: int = 32,
+        augment: bool = False,
         shuffle: bool = False,
         cache: bool = False,
         buffer_multiplier: int = 5,
@@ -70,6 +109,7 @@ class DataGenerator:
         self.split = split
         assert train_mode in ["pretrain", "classifier"]
         self.train_mode = train_mode
+        self.augment = augment
 
         # Retrieve the dataset
         ds, ds_info = tfds.load(
@@ -144,14 +184,14 @@ class DataGenerator:
 
             ds = ds.filter(_predicate)
 
-        if train_mode == "classifier":
-            total_size = len(list(ds))
-            if split == "train":
-                ds = ds.take(int(0.8 * total_size))
-            elif split == "val":
-                ds = ds.skip(int(0.8 * total_size))
-        elif train_mode == "pretrain" and split == "val":
-            raise Exception("Train dataset is split only for classifier training")
+            if train_mode == "classifier":
+                total_size = len(list(ds))
+                if split == "train":
+                    ds = ds.take(int(0.8 * total_size))
+                elif split == "val":
+                    ds = ds.skip(int(0.8 * total_size))
+            elif train_mode == "pretrain" and split == "val":
+                raise Exception("Train dataset is split only for classifier training")
 
         if shuffle:
             ds = ds.shuffle(batch_size * buffer_multiplier)
@@ -173,13 +213,21 @@ class DataGenerator:
         Returns:
             Tuple[tf.Tensor, tf.Tensor]: input/output tensor pair
         """
+        # Get the image array
+        image = input["image"]
+
+        # Whether to apply augmentation
+        if self.augment:
+            image = image_augmenter(image)
+
         if self.split == "train" and self.train_mode == "pretrain":
             return (
-                2.0 * tf.cast(input["image"], tf.float32) / 255.0 - 1.0,
-                2.0 * tf.cast(input["image"], tf.float32) / 255.0 - 1.0,
+                2.0 * tf.cast(image, tf.float32) / 255.0 - 1.0,
+                2.0 * tf.cast(image, tf.float32) / 255.0 - 1.0,
             )
+
         return (
-            2.0 * tf.cast(input["image"], tf.float32) / 255.0 - 1.0,
+            2.0 * tf.cast(image, tf.float32) / 255.0 - 1.0,
             tf.one_hot(input["label"], self.num_classes),
         )
 
