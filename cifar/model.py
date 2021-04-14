@@ -4,9 +4,12 @@ sys.path.append("./")
 import tensorflow as tf
 import tensorflow.keras.layers as KL
 import tensorflow.keras.models as KM
+from absl import flags
 
 from cifar.utils.generator import DataGenerator
 from cifar.utils.losses import categorical_focal_loss
+
+FLAGS = flags.FLAGS
 
 
 class Cifar:
@@ -172,36 +175,46 @@ class Cifar:
 
         # compile the model object
         self.compile(classifier_loss=classifier_loss)
+        if FLAGS.train_mode in ["both", "pretrain"]:
+            # prepare the generator
+            train_generator = DataGenerator(shuffle=True, train_mode="pretrain")
+            # number of trainig steps per epoch
+            train_steps = len(train_generator)
+            self.model.fit(
+                train_generator(),
+                initial_epoch=0,
+                epochs=epochs,
+                workers=8,
+                verbose=2,
+                steps_per_epoch=train_steps,
+            )
 
-        # prepare the generator
-        train_generator = DataGenerator(shuffle=True, train_mode="pretrain")
-        # number of trainig steps per epoch
-        train_steps = len(train_generator)
-        self.model.fit(
-            train_generator(),
-            initial_epoch=0,
-            epochs=epochs,
-            workers=8,
-            verbose=2,
-            steps_per_epoch=train_steps,
-        )
+        if FLAGS.train_mode in ["both", "classifier"]:
 
-        # prepare the generators for classifier training
-        train_generator_classifier = DataGenerator(
-            split="train", shuffle=True, train_mode="classifier"
-        )
-        val_generator_classifier = DataGenerator(split="val", train_mode="classifier")
+            # prepare the generators for classifier training
+            train_generator_classifier = DataGenerator(
+                split="train", shuffle=True, train_mode="classifier"
+            )
+            val_generator_classifier = DataGenerator(
+                split="val", train_mode="classifier"
+            )
 
-        self.encoder_model.trainable = False
-        self.classifier.fit(
-            train_generator_classifier(),
-            initial_epoch=0,
-            epochs=epochs,
-            workers=8,
-            verbose=2,
-            steps_per_epoch=train_steps,
-            validation_data=val_generator_classifier(),
-        )
+            # number of trainig steps per epoch
+            train_steps = len(train_generator_classifier)
+
+            if FLAGS.train_mode == "both":
+                # Use feature representations learnt from AutoEncoder training
+                self.encoder_model.trainable = False
+
+            self.classifier.fit(
+                train_generator_classifier(),
+                initial_epoch=0,
+                epochs=epochs,
+                workers=8,
+                verbose=2,
+                steps_per_epoch=train_steps,
+                validation_data=val_generator_classifier(),
+            )
 
 
 if __name__ == "__main__":
