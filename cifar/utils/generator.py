@@ -94,7 +94,7 @@ class DataGenerator:
         # Get the number of disctinct labels
         self.num_classes = len(labels)
 
-        if split == "train" or split == "val":
+        if split in ["train", "val"]:
             # Labels with fewer training samples (imbalanced labels)
             screened_labels = ["bird", "deer", "truck"]
             # Samples to be selected
@@ -146,7 +146,6 @@ class DataGenerator:
 
         if train_mode == "classifier":
             total_size = len(list(ds))
-            ds = ds.shuffle(buffer_size=total_size, seed=42)  # For reproducibility
             if split == "train":
                 ds = ds.take(int(0.8 * total_size))
             elif split == "val":
