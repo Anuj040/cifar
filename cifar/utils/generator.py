@@ -66,12 +66,17 @@ class DataGenerator:
         cache: bool = False,
         buffer_multiplier: int = 5,
     ) -> None:
+        assert split in ["train", "test", "val"]
         self.split = split
         assert train_mode in ["pretrain", "classifier"]
         self.train_mode = train_mode
 
         # Retrieve the dataset
-        ds, ds_info = tfds.load("cifar10", split=split, with_info=True)
+        ds, ds_info = tfds.load(
+            "cifar10",
+            split="train" if split in ["train", "val"] else split,
+            with_info=True,
+        )
 
         # Class labels
         labels = [
@@ -89,7 +94,7 @@ class DataGenerator:
         # Get the number of disctinct labels
         self.num_classes = len(labels)
 
-        if split == "train":
+        if split == "train" or split == "val":
             # Labels with fewer training samples (imbalanced labels)
             screened_labels = ["bird", "deer", "truck"]
             # Samples to be selected
@@ -138,10 +143,21 @@ class DataGenerator:
                 )
 
             ds = ds.filter(_predicate)
-            if shuffle:
-                ds = ds.shuffle(batch_size * buffer_multiplier)
-            if cache:
-                ds = ds.cache()
+
+        if train_mode == "classifier":
+            total_size = len(list(ds))
+            ds = ds.shuffle(buffer_size=total_size, seed=42)  # For reproducibility
+            if split == "train":
+                ds = ds.take(int(0.8 * total_size))
+            elif split == "val":
+                ds = ds.skip(int(0.8 * total_size))
+        elif train_mode == "pretrain" and split == "val":
+            raise Exception("Train dataset is split only for classifier training")
+
+        if shuffle:
+            ds = ds.shuffle(batch_size * buffer_multiplier)
+        if cache:
+            ds = ds.cache()
 
         ds = ds.map(self.map_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
         ds = ds.batch(batch_size, drop_remainder=split == "train").prefetch(
@@ -180,5 +196,9 @@ class DataGenerator:
 
 
 if __name__ == "__main__":
-    train_generator = DataGenerator(shuffle=True, train_mode="pretrain")
+    train_generator = DataGenerator(shuffle=True, train_mode="classifier")
     test_generator = DataGenerator(split="test")
+    val_generator = DataGenerator(split="val", train_mode="classifier")
+    print(len(test_generator))
+    print(len(train_generator))
+    print(len(val_generator))
