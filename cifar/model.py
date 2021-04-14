@@ -1,3 +1,4 @@
+import os
 import sys
 
 sys.path.append("./")
@@ -188,6 +189,10 @@ class Cifar:
                 verbose=2,
                 steps_per_epoch=train_steps,
             )
+
+            # Save the trained autoencoder model
+            os.makedirs("./ae_model", exist_ok=True)
+            self.model.save("ae_model/ae_model.h5")
 
         if FLAGS.train_mode in ["both", "classifier"]:
 
