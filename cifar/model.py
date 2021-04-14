@@ -34,19 +34,17 @@ class Cifar:
             features[0],
             3,
             strides=(2, 2),
-            use_bias=True,
-            activation="relu",
             name=name + f"_conv_{0+1}",
         )(input_tensor)
+        encoded = KL.Activation("relu")(KL.BatchNormalization()(encoded))
         for i, feature_num in enumerate(features[1:]):
             encoded = KL.Conv2D(
                 feature_num,
                 3,
                 strides=(2, 2),
-                use_bias=True,
-                activation="relu",
                 name=name + f"_conv_{i+2}",
             )(encoded)
+            encoded = KL.Activation("relu")(KL.BatchNormalization()(encoded))
         return KM.Model(inputs=input_tensor, outputs=encoded, name=name)
 
     def decoder(self, features=[8], name="decoder") -> KM.Model:
@@ -108,7 +106,7 @@ class Cifar:
             KM.Model: Autoencoder model
         """
         # Number of features in successive hidden layers of encoder
-        encoder_features = [4, 8]
+        encoder_features = [16, 32, 64, 128]
 
         # For decoder number of features in opposite order of encoder
         decoder_features = encoder_features.copy()
