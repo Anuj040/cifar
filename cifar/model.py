@@ -64,7 +64,7 @@ class Cifar:
         padded = tf.pad(
             input_tensor,
             padding,
-            "REFLECT",
+            "REFLECT" if len(features) < 4 else "SYMMETRIC",
         )
         decoded = KL.Conv2D(
             features[0],
