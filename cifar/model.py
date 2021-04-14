@@ -188,8 +188,10 @@ class Cifar:
 
         # prepare the generators for classifier training
         train_generator_classifier = DataGenerator(
-            shuffle=True, train_mode="classifier"
+            split="train", shuffle=True, train_mode="classifier"
         )
+        val_generator_classifier = DataGenerator(split="val", train_mode="classifier")
+
         self.encoder_model.trainable = False
         self.classifier.fit(
             train_generator_classifier(),
@@ -198,6 +200,7 @@ class Cifar:
             workers=8,
             verbose=2,
             steps_per_epoch=train_steps,
+            validation_data=val_generator_classifier(),
         )
 
 
