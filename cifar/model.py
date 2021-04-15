@@ -107,7 +107,7 @@ class Cifar:
             KM.Model: Autoencoder model
         """
         # Number of features in successive hidden layers of encoder
-        encoder_features = [16, 32, 64, 128]
+        encoder_features = [64, 128, 256, 512]
 
         # For decoder number of features in opposite order of encoder
         decoder_features = encoder_features.copy()
