@@ -253,25 +253,39 @@ class DataGenerator:
             Tuple[tf.Tensor, tf.Tensor]: input/output tensor pair
         """
         if self.augment:
-            # Random mixing proportions for different elements
-            mixup_proportions = tf.random.uniform(
-                shape=[self.batch_size, 1, 1, 1], minval=0.0, maxval=1.0
-            )
 
-            input_1 = (
-                mixup_proportions * input_1
-                + (1 - mixup_proportions) * input_1[::-1, ...]
-            )
-            if self.train_mode == "classifier":
-                mixup_proportions = tf.squeeze(mixup_proportions, axis=-1)
-                mixup_proportions = tf.squeeze(mixup_proportions, axis=-1)
-                input_2 = (
-                    mixup_proportions * input_2
-                    + (1 - mixup_proportions) * input_2[::-1, ...]
+            def _augmenter(input_1, input_2):
+                # Random mixing proportions for different elements
+                mixup_proportions = tf.random.uniform(
+                    shape=[self.batch_size, 1, 1, 1], minval=0.0, maxval=1.0
                 )
-            else:
-                # For pretraining, input and output are the same.
-                input_2 = input_1
+
+                input_1 = (
+                    mixup_proportions * input_1
+                    + (1 - mixup_proportions) * input_1[::-1, ...]
+                )
+                if self.train_mode == "classifier":
+                    mixup_proportions = tf.squeeze(mixup_proportions, axis=-1)
+                    mixup_proportions = tf.squeeze(mixup_proportions, axis=-1)
+                    input_2 = (
+                        mixup_proportions * input_2
+                        + (1 - mixup_proportions) * input_2[::-1, ...]
+                    )
+                else:
+                    # For pretraining, input and output are the same.
+                    input_2 = input_1
+                return input_1, input_2
+
+            (input_1, input_2) = tf.cond(
+                tf.less(
+                    tf.random.uniform([], minval=0, maxval=1, dtype=tf.float32),
+                    tf.cast(
+                        0.1, tf.float32
+                    ),  # Only mixup augmentation to 10% of the batches
+                ),
+                lambda: _augmenter(input_1, input_2),
+                lambda: (input_1, input_2),
+            )
 
         return input_1, input_2
 
