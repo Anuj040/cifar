@@ -13,7 +13,7 @@ FLAGS = flags.FLAGS
 flags.DEFINE_enum(
     "train_mode",
     "both",
-    ["both", "classifier", "pretrain"],
+    ["both", "classifier", "pretrain", "combined"],
     "Whether to train encoder and classifier in succession or individually.",
 )
 

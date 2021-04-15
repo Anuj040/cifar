@@ -118,7 +118,7 @@ class DataGenerator:
     ) -> None:
         assert split in ["train", "test", "val"]
         self.split = split
-        assert train_mode in ["pretrain", "classifier"]
+        assert train_mode in ["pretrain", "classifier", "combined"]
         self.train_mode = train_mode
         self.batch_size = batch_size
         self.augment = augment
@@ -196,7 +196,7 @@ class DataGenerator:
 
             ds = ds.filter(_predicate)
 
-            if train_mode == "classifier":
+            if train_mode in ["classifier", "combined"]:
                 total_size = len(list(ds))
                 if split == "train":
                     ds = ds.take(int(0.8 * total_size))
@@ -264,7 +264,7 @@ class DataGenerator:
                     mixup_proportions * input_1
                     + (1 - mixup_proportions) * input_1[::-1, ...]
                 )
-                if self.train_mode == "classifier":
+                if self.train_mode in ["classifier", "combined"]:
                     mixup_proportions = tf.squeeze(mixup_proportions, axis=-1)
                     mixup_proportions = tf.squeeze(mixup_proportions, axis=-1)
                     input_2 = (
@@ -286,7 +286,9 @@ class DataGenerator:
                 lambda: _augmenter(input_1, input_2),
                 lambda: (input_1, input_2),
             )
-
+        if self.train_mode == "combined":
+            # image, (image, one-hot label)
+            return input_1, (input_1, input_2)
         return input_1, input_2
 
     def __call__(self, *args, **kwargs) -> tf.data.Dataset:
@@ -301,11 +303,15 @@ class DataGenerator:
 
 
 if __name__ == "__main__":
-    train_generator = DataGenerator(shuffle=True, augment=True, train_mode="classifier")
+    train_generator = DataGenerator(
+        batch_size=2, shuffle=True, augment=True, train_mode="combined"
+    )
     # test_generator = DataGenerator(split="test")
     # val_generator = DataGenerator(split="val", train_mode="classifier")
     # print(len(test_generator))
     # print(len(train_generator))
     # print(len(val_generator))
-    for a, _ in train_generator().take(1):
+    for a, b, c in train_generator().take(1):
         print(a)
+        print(b)
+        print(c)

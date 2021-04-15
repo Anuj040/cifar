@@ -15,8 +15,12 @@ FLAGS = flags.FLAGS
 
 class Cifar:
     def __init__(self) -> None:
-        self.model = self.build()
-        self.classifier = self.build_classify(num_classes=10)
+        if FLAGS.train_mode in ["both", "pretrain"]:
+            self.model = self.build()
+        if FLAGS.train_mode in ["both", "classifier"]:
+            self.classifier = self.build_classify(num_classes=10)
+        if FLAGS.train_mode == "combined":
+            self.combined = self.build_combined(num_classes=10)
 
     def encoder(self, features=[8], name="encoder") -> KM.Model:
         """Creates an encoder model object
@@ -149,6 +153,39 @@ class Cifar:
 
         return KM.Model(inputs=input_tensor, outputs=probs, name="classifier")
 
+    def build_combined(self, num_classes: int = 10) -> KM.Model:
+        """Method to build combined AE-classifier model
+
+        Returns:
+            KM.Model: AE-Classifier model
+        """
+        # Number of features in successive hidden layers of encoder
+        encoder_features = [64, 128, 256, 512]
+
+        # For decoder number of features in opposite order of encoder
+        decoder_features = encoder_features.copy()
+        decoder_features.reverse()
+
+        # build the encoder model
+        self.encoder_model = self.encoder(features=encoder_features, name="encoder")
+
+        # build the decoder model
+        decoder = self.decoder(features=decoder_features, name="decoder")
+
+        input_tensor = KL.Input(
+            shape=(32, 32, 3)
+        )  # shape of images for cifar10 dataset
+
+        # Encode the images
+        encoded_features = self.encoder_model(input_tensor)
+        # Decode the image
+        decoded = decoder(encoded_features)
+
+        encoded_flat = KL.Flatten()(encoded_features)
+        probs = KL.Dense(num_classes, activation="sigmoid", name="logits")(encoded_flat)
+
+        return KM.Model(inputs=input_tensor, outputs=[decoded, probs], name="combined")
+
     def compile(self, classifier_loss: str = "focal"):
         """method to compile the model object with optimizer, loss definitions and metrics
 
@@ -156,28 +193,43 @@ class Cifar:
             classifier_loss (str, optional): loss function to use for classifier training. Defaults to "focal".
 
         """
-        self.model.compile(
-            optimizer=tf.keras.optimizers.Adam(
-                # Linear lr scaling, with batch size (default = 32)
-                learning_rate=FLAGS.lr
-                * (FLAGS.train_batch_size / 32)
-            ),
-            loss="mse",
-            metrics="mae",
-        )
+        if FLAGS.train_mode in ["both", "pretrain"]:
+            self.model.compile(
+                optimizer=tf.keras.optimizers.Adam(
+                    # Linear lr scaling, with batch size (default = 32)
+                    learning_rate=FLAGS.lr
+                    * (FLAGS.train_batch_size / 32)
+                ),
+                loss="mse",
+                metrics="mae",
+            )
         cce = tf.keras.losses.CategoricalCrossentropy(
             from_logits=True, label_smoothing=0.1
         )
         focal = categorical_focal_loss()
-        self.classifier.compile(
-            optimizer=tf.keras.optimizers.Adam(
-                # Linear lr scaling, with batch size (default = 32)
-                learning_rate=FLAGS.lr
-                * (FLAGS.train_batch_size / 32)
-            ),
-            loss=focal if classifier_loss == "focal" else cce,
-            metrics="accuracy",
-        )
+        if FLAGS.train_mode in ["both", "classifier"]:
+            self.classifier.compile(
+                optimizer=tf.keras.optimizers.Adam(
+                    # Linear lr scaling, with batch size (default = 32)
+                    learning_rate=FLAGS.lr
+                    * (FLAGS.train_batch_size / 32)
+                ),
+                loss=focal if classifier_loss == "focal" else cce,
+                metrics="accuracy",
+            )
+        if FLAGS.train_mode == "combined":
+            self.combined.compile(
+                optimizer=tf.keras.optimizers.Adam(
+                    # Linear lr scaling, with batch size (default = 32)
+                    learning_rate=FLAGS.lr
+                    * (FLAGS.train_batch_size / 32)
+                ),
+                loss={
+                    "decoder": "mse",
+                    "logits": focal if classifier_loss == "focal" else cce,
+                },
+                metrics={"decoder": None, "logits": "accuracy"},
+            )
 
     def train(self, epochs: int = 10, classifier_loss: str = "focal"):
         """method to initiate model training
@@ -241,6 +293,33 @@ class Cifar:
                 verbose=2,
                 steps_per_epoch=train_steps,
                 validation_data=val_generator_classifier(),
+            )
+
+        if FLAGS.train_mode == "combined":
+
+            # prepare the generators for classifier training
+            train_generator = DataGenerator(
+                batch_size=FLAGS.train_batch_size,
+                split="train",
+                augment=True,
+                shuffle=True,
+                train_mode="combined",
+            )
+            val_generator = DataGenerator(
+                batch_size=FLAGS.val_batch_size, split="val", train_mode="combined"
+            )
+
+            # number of trainig steps per epoch
+            train_steps = len(train_generator)
+
+            self.combined.fit(
+                train_generator(),
+                initial_epoch=0,
+                epochs=epochs,
+                workers=8,
+                verbose=2,
+                steps_per_epoch=train_steps,
+                validation_data=val_generator(),
             )
 
 
