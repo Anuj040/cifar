@@ -120,6 +120,7 @@ class DataGenerator:
         self.split = split
         assert train_mode in ["pretrain", "classifier"]
         self.train_mode = train_mode
+        self.batch_size = batch_size
         self.augment = augment
 
         # Retrieve the dataset
@@ -208,12 +209,14 @@ class DataGenerator:
             ds = ds.cache()
         if shuffle:
             ds = ds.shuffle(batch_size * buffer_multiplier)
-
+        # Per image mapping
         ds = ds.map(self.map_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
-        ds = ds.batch(batch_size, drop_remainder=split == "train").prefetch(
-            tf.data.experimental.AUTOTUNE
-        )
-        self.ds = ds
+        ds = ds.batch(batch_size, drop_remainder=split == "train")
+
+        # Per batch mapping
+        ds = ds.map(self.batch_map_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+
+        self.ds = ds.prefetch(tf.data.experimental.AUTOTUNE)
 
     def map_fn(self, input: dict) -> Tuple[tf.Tensor, tf.Tensor]:
         """method to transform the dataset elements to model usable form
@@ -235,6 +238,42 @@ class DataGenerator:
             return image, image
 
         return image, tf.one_hot(input["label"], self.num_classes)
+
+    def batch_map_fn(
+        self, input_1: tf.Tensor, input_2: tf.Tensor
+    ) -> Tuple[tf.Tensor, tf.Tensor]:
+        """method to apply transformations between elements of a given batch.
+        Takes a batch and mixes it with its own elements in reverse order.
+
+        Args:
+            input_1 (tf.Tensor): "classifier" & "pretrain": input_image
+            input_2 (tf.Tensor): "classifier": one-hot labels, "pretrain": output_image
+
+        Returns:
+            Tuple[tf.Tensor, tf.Tensor]: input/output tensor pair
+        """
+        if self.augment:
+            # Random mixing proportions for different elements
+            mixup_proportions = tf.random.uniform(
+                shape=[self.batch_size, 1, 1, 1], minval=0.0, maxval=1.0
+            )
+
+            input_1 = (
+                mixup_proportions * input_1
+                + (1 - mixup_proportions) * input_1[::-1, ...]
+            )
+            if self.train_mode == "classifier":
+                mixup_proportions = tf.squeeze(mixup_proportions, axis=-1)
+                mixup_proportions = tf.squeeze(mixup_proportions, axis=-1)
+                input_2 = (
+                    mixup_proportions * input_2
+                    + (1 - mixup_proportions) * input_2[::-1, ...]
+                )
+            else:
+                # For pretraining, input and output are the same.
+                input_2 = input_1
+
+        return input_1, input_2
 
     def __call__(self, *args, **kwargs) -> tf.data.Dataset:
         if self.split == "train":
