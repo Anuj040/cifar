@@ -35,15 +35,15 @@ class Cifar:
             features[0],
             3,
             strides=(2, 2),
-            name=name + f"_conv_{0+1}",
+            name=name + f"_conv_{1}",
         )(input_tensor)
         encoded = KL.Activation("relu")(KL.BatchNormalization()(encoded))
-        for i, feature_num in enumerate(features[1:]):
+        for i, feature_num in enumerate(features[1:], start=2):
             encoded = KL.Conv2D(
                 feature_num,
                 3,
                 strides=(2, 2),
-                name=name + f"_conv_{i+2}",
+                name=name + f"_conv_{i}",
             )(encoded)
             encoded = KL.Activation("relu")(KL.BatchNormalization()(encoded))
         return KM.Model(inputs=input_tensor, outputs=encoded, name=name)
@@ -76,7 +76,7 @@ class Cifar:
             activation="relu",
             name=name + f"_deconv_{len(features)}",
         )(padded)
-        for i, feature_num in enumerate(features[1:]):
+        for i, feature_num in enumerate(features[1:], start=1):
             decoded = KL.Conv2DTranspose(
                 feature_num,
                 (4, 4),
@@ -84,7 +84,7 @@ class Cifar:
                 padding="same",
                 use_bias=True,
                 activation="relu",
-                name=name + f"_deconv_{len(features)-i -1}",
+                name=name + f"_deconv_{len(features)-i}",
             )(decoded)
 
         # Final reconstruction back to the original image size
@@ -137,6 +137,11 @@ class Cifar:
             KM.Model: Classifier model
         """
         input_tensor = KL.Input(shape=(32, 32, 3))
+        # if FLAGS.train_mode == "classifier":
+        #     # Use the pretrained encoder for classifier only training
+        #     self.encoder_model = KM.load_model("ae_model/ae_model.h5").get_layer(
+        #         "encoder"
+        #     )
         encoded_features = self.encoder_model(input_tensor)
 
         encoded_flat = KL.Flatten()(encoded_features)
@@ -152,14 +157,24 @@ class Cifar:
 
         """
         self.model.compile(
-            optimizer=tf.keras.optimizers.Adam(), loss="mse", metrics="mae"
+            optimizer=tf.keras.optimizers.Adam(
+                # Linear lr scaling, with batch size (default = 32)
+                learning_rate=FLAGS.lr
+                * (FLAGS.train_batch_size / 32)
+            ),
+            loss="mse",
+            metrics="mae",
         )
         cce = tf.keras.losses.CategoricalCrossentropy(
             from_logits=True, label_smoothing=0.1
         )
         focal = categorical_focal_loss()
         self.classifier.compile(
-            optimizer=tf.keras.optimizers.Adam(),
+            optimizer=tf.keras.optimizers.Adam(
+                # Linear lr scaling, with batch size (default = 32)
+                learning_rate=FLAGS.lr
+                * (FLAGS.train_batch_size / 32)
+            ),
             loss=focal if classifier_loss == "focal" else cce,
             metrics="accuracy",
         )
@@ -177,7 +192,10 @@ class Cifar:
         if FLAGS.train_mode in ["both", "pretrain"]:
             # prepare the generator
             train_generator = DataGenerator(
-                augment=True, shuffle=True, train_mode="pretrain"
+                batch_size=FLAGS.train_batch_size,
+                augment=True,
+                shuffle=True,
+                train_mode="pretrain",
             )
             # number of trainig steps per epoch
             train_steps = len(train_generator)
@@ -198,18 +216,22 @@ class Cifar:
 
             # prepare the generators for classifier training
             train_generator_classifier = DataGenerator(
-                split="train", augment=True, shuffle=True, train_mode="classifier"
+                batch_size=FLAGS.train_batch_size,
+                split="train",
+                augment=True,
+                shuffle=True,
+                train_mode="classifier",
             )
             val_generator_classifier = DataGenerator(
-                split="val", train_mode="classifier"
+                batch_size=FLAGS.val_batch_size, split="val", train_mode="classifier"
             )
 
             # number of trainig steps per epoch
             train_steps = len(train_generator_classifier)
 
-            if FLAGS.train_mode == "both":
-                # Use feature representations learnt from AutoEncoder training
-                self.encoder_model.trainable = False
+            # if FLAGS.train_mode == "both":
+            #     # Use feature representations learnt from AutoEncoder training
+            #     self.encoder_model.trainable = True
 
             self.classifier.fit(
                 train_generator_classifier(),

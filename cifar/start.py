@@ -1,3 +1,6 @@
+import os
+
+# os.environ["TFDS_DATA_DIR"] = "/workspace/tensorflow_datasets"
 import sys
 
 sys.path.append("./")
@@ -15,6 +18,9 @@ flags.DEFINE_enum(
 )
 
 flags.DEFINE_integer("epochs", 10, "number of training epochs")
+flags.DEFINE_integer("train_batch_size", 32, "batchsize for train dataset")
+flags.DEFINE_integer("val_batch_size", 32, "batchsize for validation dataset")
+flags.DEFINE_float("lr", 0.001, "learning rate for training")
 
 
 def main(argv):
