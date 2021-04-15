@@ -76,20 +76,18 @@ class Cifar:
             3,
             strides=1,
             padding="same",
-            use_bias=True,
-            activation="relu",
             name=name + f"_deconv_{len(features)}",
         )(padded)
+        decoded = KL.Activation("relu")(KL.BatchNormalization()(decoded))
         for i, feature_num in enumerate(features[1:], start=1):
             decoded = KL.Conv2DTranspose(
                 feature_num,
                 (4, 4),
                 strides=(2, 2),
                 padding="same",
-                use_bias=True,
-                activation="relu",
                 name=name + f"_deconv_{len(features)-i}",
             )(decoded)
+            decoded = KL.Activation("relu")(KL.BatchNormalization()(decoded))
 
         # Final reconstruction back to the original image size
         decoded = KL.Conv2DTranspose(
