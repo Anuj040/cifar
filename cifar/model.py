@@ -6,6 +6,7 @@ import tensorflow as tf
 import tensorflow.keras.layers as KL
 import tensorflow.keras.models as KM
 from absl import flags
+from keras_drop_block import DropBlock2D
 
 from cifar.utils.generator import DataGenerator
 from cifar.utils.losses import categorical_focal_loss
@@ -62,7 +63,7 @@ class Cifar:
         Returns:
             KM.Model: Decoder model
         """
-        input_tensor = KL.Input(shape=(None, None, features[0]))
+        input_tensor = KL.Input(shape=(1, 1, features[0]))
 
         # mismatch between input and output image shape
         padding = tf.constant([[0, 0], [1, 0], [1, 0], [0, 0]])
@@ -100,6 +101,7 @@ class Cifar:
             activation="tanh",
             name=name + f"_out",
         )(decoded)
+        decoded = DropBlock2D(block_size=5, keep_prob=0.8)(decoded)
         return KM.Model(inputs=input_tensor, outputs=decoded, name=name)
 
     def build(self) -> KM.Model:
@@ -180,6 +182,7 @@ class Cifar:
         decoded = decoder(encoded_features)
 
         encoded_flat = KL.Flatten()(encoded_features)
+        encoded_flat = KL.Dropout(rate=0.2)(encoded_flat)
         probs = KL.Dense(num_classes, activation="sigmoid", name="logits")(encoded_flat)
 
         return KM.Model(inputs=input_tensor, outputs=[decoded, probs], name="combined")
@@ -297,7 +300,7 @@ class Cifar:
 
             # prepare the generators for classifier training
             train_generator = DataGenerator(
-                batch_size=FLAGS.train_batch_size,
+                batch_size=2,#FLAGS.train_batch_size,
                 split="train",
                 augment=True,
                 shuffle=True,

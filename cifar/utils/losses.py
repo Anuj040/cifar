@@ -17,6 +17,8 @@ def categorical_focal_loss(alpha: float = 0.25, gamma: float = 2.0):
     Returns:
         function: loss calculating function
     """
+    weights = [1.0] * 10
+    weights[2] = weights[4] = weights[9] = 2.0
 
     def _loss(y_true: tf.Tensor, y_pred: tf.Tensor):
 
@@ -35,9 +37,9 @@ def categorical_focal_loss(alpha: float = 0.25, gamma: float = 2.0):
         y_pred = K.clip(y_pred, epsilon, 1.0 - epsilon)
 
         # Calculate Focal Loss
-        loss = -alpha * y_true * K.pow(1 - y_pred, gamma) * K.log(y_pred) - alpha * (
-            1 - y_true
-        ) * K.pow(y_pred, gamma) * K.log(1 - y_pred)
+        loss = -np.array(weights) * alpha * y_true * K.pow(1 - y_pred, gamma) * K.log(
+            y_pred
+        ) - alpha * (1 - y_true) * K.pow(y_pred, gamma) * K.log(1 - y_pred)
 
         # Compute mean loss in mini_batch
         return K.mean(K.sum(loss, axis=-1))
