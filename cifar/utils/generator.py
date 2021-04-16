@@ -223,13 +223,6 @@ class DataGenerator:
                     lambda: repeat_count,
                 )
 
-            if split == "train":
-                ds = ds.flat_map(
-                    lambda x: tf.data.Dataset.from_tensors(x).repeat(
-                        oversample_classes(x)
-                    )
-                )
-
             if train_mode in ["classifier", "combined"]:
                 total_size = len(list(ds))
                 if split == "train":
@@ -238,6 +231,14 @@ class DataGenerator:
                     ds = ds.skip(int(0.8 * total_size))
             elif train_mode == "pretrain" and split == "val":
                 raise Exception("Train dataset is split only for classifier training")
+
+            # Oversample the under-represented classes once the validation split have been taken
+            if split == "train":
+                ds = ds.flat_map(
+                    lambda x: tf.data.Dataset.from_tensors(x).repeat(
+                        oversample_classes(x)
+                    )
+                )
 
         if cache:
             ds = ds.cache()
@@ -286,43 +287,45 @@ class DataGenerator:
         Returns:
             Tuple[tf.Tensor, tf.Tensor]: input/output tensor pair
         """
-        if self.augment:
 
-            def _augmenter(input_1, input_2):
-                # Random mixing proportions for different elements
-                mixup_proportions = tf.random.uniform(
-                    shape=[self.batch_size, 1, 1, 1], minval=0.0, maxval=1.0
+        def _augmenter(input_1, input_2):
+            # Random mixing proportions for different elements
+            mixup_proportions = tf.random.uniform(
+                shape=[self.batch_size, 1, 1, 1], minval=0.0, maxval=1.0
+            )
+
+            input_1 = (
+                mixup_proportions * input_1
+                + (1 - mixup_proportions) * input_1[::-1, ...]
+            )
+            if self.train_mode in ["classifier", "combined"]:
+                mixup_proportions = tf.squeeze(mixup_proportions, axis=-1)
+                mixup_proportions = tf.squeeze(mixup_proportions, axis=-1)
+                input_2 = (
+                    mixup_proportions * input_2
+                    + (1 - mixup_proportions) * input_2[::-1, ...]
                 )
+                input_2 = tf.concat([input_2] * 4, axis=-1)
+            else:
+                # For pretraining, input and output are the same.
+                input_2 = input_1
+            return input_1, input_2
 
-                input_1 = (
-                    mixup_proportions * input_1
-                    + (1 - mixup_proportions) * input_1[::-1, ...]
-                )
-                if self.train_mode in ["classifier", "combined"]:
-                    mixup_proportions = tf.squeeze(mixup_proportions, axis=-1)
-                    mixup_proportions = tf.squeeze(mixup_proportions, axis=-1)
-                    input_2 = (
-                        mixup_proportions * input_2
-                        + (1 - mixup_proportions) * input_2[::-1, ...]
-                    )
-                    input_2 = tf.concat([input_2] * 4, axis=-1)
-                else:
-                    # For pretraining, input and output are the same.
-                    input_2 = input_1
-                return input_1, input_2
-
-            (input_1, input_2) = tf.cond(
+        (input_1, input_2) = tf.cond(
+            tf.logical_and(
                 tf.less(
                     tf.random.uniform([], minval=0, maxval=1, dtype=tf.float32),
                     tf.cast(
                         0.1, tf.float32
                     ),  # Only mixup augmentation to 10% of the batches
                 ),
-                lambda: _augmenter(input_1, input_2),
-                lambda: (input_1, input_2),
-            )
+                self.augment,
+            ),
+            lambda: _augmenter(input_1, input_2),
+            lambda: (input_1, tf.concat([input_2] * 4, axis=-1)),
+        )
         if self.train_mode == "combined":
-            # image, (image, one-hot label)
+            # image, (image, one-hot label * 4 )
             return input_1, (input_1, input_2)
         return input_1, input_2
 
