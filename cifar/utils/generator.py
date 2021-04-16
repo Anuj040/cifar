@@ -305,6 +305,7 @@ class DataGenerator:
                         mixup_proportions * input_2
                         + (1 - mixup_proportions) * input_2[::-1, ...]
                     )
+                    input_2 = tf.concat([input_2] * 4, axis=-1)
                 else:
                     # For pretraining, input and output are the same.
                     input_2 = input_1

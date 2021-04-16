@@ -3,18 +3,30 @@ import sys
 
 sys.path.append("./")
 import tensorflow as tf
+import tensorflow.keras.backend as K
 import tensorflow.keras.layers as KL
 import tensorflow.keras.models as KM
 from absl import flags
 from keras_drop_block import DropBlock2D
 
 from cifar.utils.generator import DataGenerator
-from cifar.utils.losses import categorical_focal_loss
+from cifar.utils.losses import multi_layer_accuracy, multi_layer_focal
 
 FLAGS = flags.FLAGS
 
 
 def deconv_block(input_tensor: tf.Tensor, features: int, name: str) -> tf.Tensor:
+    """Bottleneck style deconvolutional block. Applies convolution to decrease to fewer features.
+    upscales in lower feature space. Convols to specified feature numbers
+
+    Args:
+        input_tensor (tf.Tensor): tensor to apply deconvolution to
+        features (int): number of features
+        name (str): name for the tensors
+
+    Returns:
+        tf.Tensor: output tensor
+    """
     out = input_tensor
 
     out = KL.Conv2D(
@@ -74,6 +86,7 @@ class Cifar:
             name=name + f"_conv_{1}",
         )(input_tensor)
         encoded = KL.Activation("relu")(KL.BatchNormalization()(encoded))
+        encoded_list = [encoded]
         for i, feature_num in enumerate(features[1:], start=2):
             encoded = KL.Conv2D(
                 feature_num,
@@ -82,7 +95,8 @@ class Cifar:
                 name=name + f"_conv_{i}",
             )(encoded)
             encoded = KL.Activation("relu")(KL.BatchNormalization()(encoded))
-        return KM.Model(inputs=input_tensor, outputs=encoded, name=name)
+            encoded_list.append(encoded)
+        return KM.Model(inputs=input_tensor, outputs=encoded_list, name=name)
 
     def decoder(self, features=[8], name="decoder") -> KM.Model:
         """Creates a decoder model object
@@ -110,14 +124,6 @@ class Cifar:
             decoded = deconv_block(
                 decoded, feature_num, name + f"_deconv_{len(features)-i}"
             )
-            # decoded = KL.Conv2DTranspose(
-            #     feature_num,
-            #     (4, 4),
-            #     strides=(2, 2),
-            #     padding="same",
-            #     name=name + f"_deconv_{len(features)-i}",
-            # )(decoded)
-            # decoded = KL.Activation("relu")(KL.BatchNormalization()(decoded))
 
         # Final reconstruction back to the original image size
         decoded = KL.Conv2DTranspose(
@@ -159,7 +165,7 @@ class Cifar:
         # Encode the images
         encoded = self.encoder_model(input_tensor)
         # Decode the image
-        decoded = decoder(encoded)
+        decoded = decoder(encoded[-1])
 
         return KM.Model(inputs=input_tensor, outputs=decoded, name="AutoEncoder")
 
@@ -175,11 +181,35 @@ class Cifar:
         #     self.encoder_model = KM.load_model("ae_model/ae_model.h5").get_layer(
         #         "encoder"
         #     )
+
+        # Number of features in successive hidden layers of encoder
+        encoder_features = [64, 128, 256, 512]
+
+        # build the encoder model
+        self.encoder_model = self.encoder(features=encoder_features, name="encoder")
         encoded_features = self.encoder_model(input_tensor)
 
-        encoded_flat = KL.Flatten()(encoded_features)
-        probs = KL.Dense(num_classes, activation="sigmoid", name="logits")(encoded_flat)
+        # logits from the final layer of features of auto-encoder
+        encoded_flat = KL.Flatten()(encoded_features[-1])
+        encoded_flat = KL.Dropout(rate=0.2)(encoded_flat)
+        probs = KL.Dense(num_classes, activation="sigmoid", name="logits_n")(
+            encoded_flat
+        )
 
+        # logits from the all but last layer of features of auto-encoder
+        pooled_probs = [
+            KL.Dense(num_classes, activation="sigmoid", name=f"logits_{i}")(
+                KL.Dropout(rate=0.2)(
+                    KL.Flatten()(KL.GlobalAveragePooling2D()(features))
+                )
+            )
+            for i, features in enumerate(encoded_features[:-1], start=1)
+        ]
+
+        # concatenated logits from all the layers
+        probs = KL.Lambda(lambda x: tf.concat(x, axis=-1), name="logits")(
+            [probs] + pooled_probs
+        )
         return KM.Model(inputs=input_tensor, outputs=probs, name="classifier")
 
     def build_combined(self, num_classes: int = 10) -> KM.Model:
@@ -206,12 +236,30 @@ class Cifar:
 
         # Encode the images
         encoded_features = self.encoder_model(input_tensor)
-        # Decode the image
-        decoded = decoder(encoded_features)
+        # Decode the image from the final layer features of Auto-encoder
+        decoded = decoder(encoded_features[-1])
 
-        encoded_flat = KL.Flatten()(encoded_features)
+        # logits from the final layer of features of auto-encoder
+        encoded_flat = KL.Flatten()(encoded_features[-1])
         encoded_flat = KL.Dropout(rate=0.2)(encoded_flat)
-        probs = KL.Dense(num_classes, activation="sigmoid", name="logits")(encoded_flat)
+        probs = KL.Dense(num_classes, activation="sigmoid", name="logits_n")(
+            encoded_flat
+        )
+
+        # logits from the all but last layer of features of auto-encoder
+        pooled_probs = [
+            KL.Dense(num_classes, activation="sigmoid", name=f"logits_{i}")(
+                KL.Dropout(rate=0.2)(
+                    KL.Flatten()(KL.GlobalAveragePooling2D()(features))
+                )
+            )
+            for i, features in enumerate(encoded_features[:-1], start=1)
+        ]
+
+        # concatenated logits from all the layers
+        probs = KL.Lambda(lambda x: tf.concat(x, axis=-1), name="logits")(
+            [probs] + pooled_probs
+        )
 
         return KM.Model(inputs=input_tensor, outputs=[decoded, probs], name="combined")
 
@@ -235,7 +283,8 @@ class Cifar:
         cce = tf.keras.losses.CategoricalCrossentropy(
             from_logits=True, label_smoothing=0.1
         )
-        focal = categorical_focal_loss()
+        focal = multi_layer_focal()
+        accuracy = multi_layer_accuracy()
         if FLAGS.train_mode in ["both", "classifier"]:
             self.classifier.compile(
                 optimizer=tf.keras.optimizers.Adam(
@@ -244,7 +293,7 @@ class Cifar:
                     * (FLAGS.train_batch_size / 32)
                 ),
                 loss=focal if classifier_loss == "focal" else cce,
-                metrics="accuracy",
+                metrics=accuracy,
             )
         if FLAGS.train_mode == "combined":
             self.combined.compile(
@@ -257,7 +306,8 @@ class Cifar:
                     "decoder": "mse",
                     "logits": focal if classifier_loss == "focal" else cce,
                 },
-                metrics={"decoder": None, "logits": "accuracy"},
+                metrics={"decoder": None, "logits": accuracy},
+                loss_weights={"decoder": 1.0, "logits": 20.0},
             )
 
     def train(self, epochs: int = 10, classifier_loss: str = "focal"):
