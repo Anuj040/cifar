@@ -21,6 +21,7 @@ flags.DEFINE_integer("epochs", 10, "number of training epochs")
 flags.DEFINE_integer("train_batch_size", 32, "batchsize for train dataset")
 flags.DEFINE_integer("val_batch_size", 32, "batchsize for validation dataset")
 flags.DEFINE_float("lr", 0.001, "learning rate for training")
+flags.DEFINE_bool("cache", False, "whether to store the train/val data in cache")
 
 
 def main(argv):
