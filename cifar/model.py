@@ -3,7 +3,6 @@ import sys
 
 sys.path.append("./")
 import tensorflow as tf
-import tensorflow.keras.backend as K
 import tensorflow.keras.layers as KL
 import tensorflow.keras.models as KM
 from absl import flags
@@ -294,6 +293,7 @@ class Cifar:
                 ),
                 loss=focal if classifier_loss == "focal" else cce,
                 metrics=accuracy,
+                loss_weights=10.0,
             )
         if FLAGS.train_mode == "combined":
             self.combined.compile(
@@ -380,6 +380,8 @@ class Cifar:
             )
 
         if FLAGS.train_mode == "combined":
+            # Directory for saving the trained model
+            os.makedirs("./com_model", exist_ok=True)
 
             # prepare the generators for classifier training
             train_generator = DataGenerator(
@@ -408,6 +410,16 @@ class Cifar:
                 verbose=2,
                 steps_per_epoch=train_steps,
                 validation_data=val_generator(),
+                callbacks=[
+                    tf.keras.callbacks.ModelCheckpoint(
+                        "com_model/com_model_{epoch:04d}_{val_logits_acc:.4f}.h5",
+                        monitor="val_logits_acc",
+                        verbose=0,
+                        save_best_only=True,
+                        save_weights_only=False,
+                        mode="max",
+                    )
+                ],
             )
 
 
