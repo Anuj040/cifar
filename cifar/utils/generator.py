@@ -196,6 +196,40 @@ class DataGenerator:
 
             ds = ds.filter(_predicate)
 
+            def oversample_classes(
+                input: dict, check_labels=tf.constant(screened_labels_id)
+            ) -> int:
+                """
+                Returns the number of copies of given sample
+                """
+                label = input["label"]
+
+                # Check if the label is from underrepresented class
+                screen_labels = tf.equal(
+                    check_labels, tf.cast(label, check_labels.dtype)
+                )
+                reduced_labels = tf.reduce_sum(tf.cast(screen_labels, tf.float32))
+
+                # Default number of times an element will be repeated
+                repeat_count = tf.constant(1, tf.int64)
+
+                # Repeat only half of the undersampled samples
+                residual = tf.less_equal(tf.random.uniform([], dtype=tf.float32), 0.5)
+                residual = tf.cast(residual, tf.int64)
+
+                return tf.cond(
+                    reduced_labels > 0,
+                    lambda: repeat_count + residual,
+                    lambda: repeat_count,
+                )
+
+            if split == "train":
+                ds = ds.flat_map(
+                    lambda x: tf.data.Dataset.from_tensors(x).repeat(
+                        oversample_classes(x)
+                    )
+                )
+
             if train_mode in ["classifier", "combined"]:
                 total_size = len(list(ds))
                 if split == "train":
@@ -311,7 +345,7 @@ if __name__ == "__main__":
     # print(len(test_generator))
     # print(len(train_generator))
     # print(len(val_generator))
-    for a, b, c in train_generator().take(1):
+    for a, (b, c) in train_generator().take(1):
         print(a)
         print(b)
         print(c)
