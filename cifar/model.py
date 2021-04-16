@@ -14,6 +14,37 @@ from cifar.utils.losses import categorical_focal_loss
 FLAGS = flags.FLAGS
 
 
+def deconv_block(input_tensor: tf.Tensor, features: int, name: str) -> tf.Tensor:
+    out = input_tensor
+
+    out = KL.Conv2D(
+        int(features // 2),
+        1,
+        strides=(1, 1),
+        name=name + f"_c{1}",
+    )(input_tensor)
+    out = KL.Activation("relu")(KL.BatchNormalization()(out))
+
+    out = KL.Conv2DTranspose(
+        int(features // 2),
+        (4, 4),
+        strides=(2, 2),
+        padding="same",
+        name=name + f"_d",
+    )(out)
+    out = KL.Activation("relu")(KL.BatchNormalization()(out))
+
+    out = KL.Conv2D(
+        features,
+        1,
+        strides=(1, 1),
+        name=name + f"_c{2}",
+    )(out)
+    out = KL.Activation("relu")(KL.BatchNormalization()(out))
+
+    return out
+
+
 class Cifar:
     def __init__(self) -> None:
         if FLAGS.train_mode in ["both", "pretrain"]:
@@ -72,23 +103,21 @@ class Cifar:
             padding,
             "REFLECT" if len(features) < 4 else "SYMMETRIC",
         )
-        decoded = KL.Conv2D(
-            features[0],
-            3,
-            strides=1,
-            padding="same",
-            name=name + f"_deconv_{len(features)}",
-        )(padded)
-        decoded = KL.Activation("relu")(KL.BatchNormalization()(decoded))
+
+        decoded = padded
+
         for i, feature_num in enumerate(features[1:], start=1):
-            decoded = KL.Conv2DTranspose(
-                feature_num,
-                (4, 4),
-                strides=(2, 2),
-                padding="same",
-                name=name + f"_deconv_{len(features)-i}",
-            )(decoded)
-            decoded = KL.Activation("relu")(KL.BatchNormalization()(decoded))
+            decoded = deconv_block(
+                decoded, feature_num, name + f"_deconv_{len(features)-i}"
+            )
+            # decoded = KL.Conv2DTranspose(
+            #     feature_num,
+            #     (4, 4),
+            #     strides=(2, 2),
+            #     padding="same",
+            #     name=name + f"_deconv_{len(features)-i}",
+            # )(decoded)
+            # decoded = KL.Activation("relu")(KL.BatchNormalization()(decoded))
 
         # Final reconstruction back to the original image size
         decoded = KL.Conv2DTranspose(
@@ -171,7 +200,6 @@ class Cifar:
 
         # build the decoder model
         decoder = self.decoder(features=decoder_features, name="decoder")
-
         input_tensor = KL.Input(
             shape=(32, 32, 3)
         )  # shape of images for cifar10 dataset
@@ -248,6 +276,7 @@ class Cifar:
                 batch_size=FLAGS.train_batch_size,
                 augment=True,
                 shuffle=True,
+                cache=FLAGS.cache,
                 train_mode="pretrain",
             )
             # number of trainig steps per epoch
@@ -272,11 +301,15 @@ class Cifar:
                 batch_size=FLAGS.train_batch_size,
                 split="train",
                 augment=True,
+                cache=FLAGS.cache,
                 shuffle=True,
                 train_mode="classifier",
             )
             val_generator_classifier = DataGenerator(
-                batch_size=FLAGS.val_batch_size, split="val", train_mode="classifier"
+                batch_size=FLAGS.val_batch_size,
+                split="val",
+                cache=FLAGS.cache,
+                train_mode="classifier",
             )
 
             # number of trainig steps per epoch
@@ -300,14 +333,18 @@ class Cifar:
 
             # prepare the generators for classifier training
             train_generator = DataGenerator(
-                batch_size=2,#FLAGS.train_batch_size,
+                batch_size=FLAGS.train_batch_size,
                 split="train",
                 augment=True,
                 shuffle=True,
+                cache=FLAGS.cache,
                 train_mode="combined",
             )
             val_generator = DataGenerator(
-                batch_size=FLAGS.val_batch_size, split="val", train_mode="combined"
+                batch_size=FLAGS.val_batch_size,
+                split="val",
+                cache=FLAGS.cache,
+                train_mode="combined",
             )
 
             # number of trainig steps per epoch
