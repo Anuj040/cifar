@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 
 sys.path.append("./")
@@ -57,13 +58,46 @@ def deconv_block(input_tensor: tf.Tensor, features: int, name: str) -> tf.Tensor
 
 
 class Cifar:
-    def __init__(self) -> None:
+    def __init__(self, model_path: str) -> None:
+        """
+
+        Args:
+            model_path (str): path to the saved model to resume training from
+        """
+        self.model_path = model_path
+
         if FLAGS.train_mode in ["both", "pretrain"]:
             self.model = self.build()
         if FLAGS.train_mode in ["both", "classifier"]:
             self.classifier = self.build_classify(num_classes=10)
         if FLAGS.train_mode == "combined":
-            self.combined = self.build_combined(num_classes=10)
+
+            if model_path:
+                # Load the model from saved ".h5" file
+                print(f"\nloading model ...\n")
+                print(model_path)
+                self.combined = KM.load_model(
+                    filepath=model_path,
+                    custom_objects={
+                        "DropBlock2D": DropBlock2D,
+                        "mlti": multi_layer_focal(),
+                        "acc": multi_layer_accuracy(),
+                    },
+                    compile=True,
+                )
+                # set epoch number
+                self.set_epoch(model_path)
+            else:
+                self.combined = self.build_combined(num_classes=10)
+
+                # Initialize the epoch counter for model training
+                self.epoch = 0
+
+    def set_epoch(self, path: str) -> None:
+        split = re.split(r"/", path)
+        e = [a for a in split if "model_" in a][0].replace(".h5", "")
+        e = re.findall(r"[-+]?\d*\.\d+|\d+", e)
+        self.epoch = int(e[0])
 
     def encoder(self, features=[8], name="encoder") -> KM.Model:
         """Creates an encoder model object
@@ -319,7 +353,9 @@ class Cifar:
         """
 
         # compile the model object
-        self.compile(classifier_loss=classifier_loss)
+        if not self.model_path:
+            self.compile(classifier_loss=classifier_loss)
+
         if FLAGS.train_mode in ["both", "pretrain"]:
             # prepare the generator
             train_generator = DataGenerator(
@@ -404,7 +440,7 @@ class Cifar:
 
             self.combined.fit(
                 train_generator(),
-                initial_epoch=0,
+                initial_epoch=self.epoch,
                 epochs=epochs,
                 workers=8,
                 verbose=2,
