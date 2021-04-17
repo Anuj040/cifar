@@ -66,6 +66,9 @@ class Cifar:
         """
         self.model_path = model_path
 
+        # Number of features in successive hidden layers of encoder
+        self.encoder_features = [128, 256, 512, 1024]
+
         if FLAGS.train_mode in ["both", "pretrain"]:
             self.model = self.build()
         if FLAGS.train_mode in ["both", "classifier"]:
@@ -178,15 +181,15 @@ class Cifar:
         Returns:
             KM.Model: Autoencoder model
         """
-        # Number of features in successive hidden layers of encoder
-        encoder_features = [64, 128, 256, 512]
 
         # For decoder number of features in opposite order of encoder
-        decoder_features = encoder_features.copy()
+        decoder_features = self.encoder_features.copy()
         decoder_features.reverse()
 
         # build the encoder model
-        self.encoder_model = self.encoder(features=encoder_features, name="encoder")
+        self.encoder_model = self.encoder(
+            features=self.encoder_features, name="encoder"
+        )
 
         # build the decoder model
         decoder = self.decoder(features=decoder_features, name="decoder")
@@ -215,11 +218,10 @@ class Cifar:
         #         "encoder"
         #     )
 
-        # Number of features in successive hidden layers of encoder
-        encoder_features = [64, 128, 256, 512]
-
         # build the encoder model
-        self.encoder_model = self.encoder(features=encoder_features, name="encoder")
+        self.encoder_model = self.encoder(
+            features=self.encoder_features, name="encoder"
+        )
         encoded_features = self.encoder_model(input_tensor)
 
         # logits from the final layer of features of auto-encoder
@@ -251,15 +253,15 @@ class Cifar:
         Returns:
             KM.Model: AE-Classifier model
         """
-        # Number of features in successive hidden layers of encoder
-        encoder_features = [64, 128, 256, 512]
 
         # For decoder number of features in opposite order of encoder
-        decoder_features = encoder_features.copy()
+        decoder_features = self.encoder_features.copy()
         decoder_features.reverse()
 
         # build the encoder model
-        self.encoder_model = self.encoder(features=encoder_features, name="encoder")
+        self.encoder_model = self.encoder(
+            features=self.encoder_features, name="encoder"
+        )
 
         # build the decoder model
         decoder = self.decoder(features=decoder_features, name="decoder")
@@ -381,6 +383,8 @@ class Cifar:
             self.model.save("ae_model/ae_model.h5")
 
         if FLAGS.train_mode in ["both", "classifier"]:
+            # Directory for saving the trained model
+            os.makedirs("./class_model", exist_ok=True)
 
             # prepare the generators for classifier training
             train_generator_classifier = DataGenerator(
@@ -413,6 +417,16 @@ class Cifar:
                 verbose=2,
                 steps_per_epoch=train_steps,
                 validation_data=val_generator_classifier(),
+                callbacks=[
+                    tf.keras.callbacks.ModelCheckpoint(
+                        "class_model/class_model_{epoch:04d}_{val_acc:.4f}.h5",
+                        monitor="val_acc",
+                        verbose=0,
+                        save_best_only=True,
+                        save_weights_only=False,
+                        mode="max",
+                    )
+                ],
             )
 
         if FLAGS.train_mode == "combined":
