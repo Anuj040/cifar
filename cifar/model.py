@@ -10,7 +10,7 @@ from absl import flags
 from keras_drop_block import DropBlock2D
 
 from cifar.utils.generator import DataGenerator
-from cifar.utils.losses import multi_layer_accuracy, multi_layer_focal
+from cifar.utils.losses import MultiLayerAccuracy, multi_layer_focal
 
 FLAGS = flags.FLAGS
 
@@ -81,7 +81,7 @@ class Cifar:
                     custom_objects={
                         "DropBlock2D": DropBlock2D,
                         "mlti": multi_layer_focal(),
-                        "acc": multi_layer_accuracy(),
+                        "acc": MultiLayerAccuracy(),
                     },
                     compile=True,
                 )
@@ -317,7 +317,7 @@ class Cifar:
             from_logits=True, label_smoothing=0.1
         )
         focal = multi_layer_focal()
-        accuracy = multi_layer_accuracy()
+        accuracy = MultiLayerAccuracy()
         if FLAGS.train_mode in ["both", "classifier"]:
             self.classifier.compile(
                 optimizer=tf.keras.optimizers.Adam(

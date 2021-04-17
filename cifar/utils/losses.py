@@ -76,31 +76,52 @@ def multi_layer_focal(weight: float = 1.0):
     return _loss
 
 
-def multi_layer_accuracy():
-    """custom layer to calculate accuracy with predicted labels from multiple latent vectors
+class MultiLayerAccuracy(tf.keras.metrics.Metric):
+    def __init__(self, name: str = "acc", **kwargs):
+        """custom keras metric layer to calculate accuracy with predicted labels from multiple latent vectors
 
-    Returns:
-        function: metric calculating function
-    """
-    # Metrics function
-    m = tf.keras.metrics.CategoricalAccuracy()
+        Args:
+            name (str, optional): Layer name. Defaults to "acc".
+        """
+        super(MultiLayer, self).__init__(name=name, **kwargs)
 
-    def _loss(y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
+        # Stores the summation of metric value over the whole dataset
+        self.metric = self.add_weight(name="true_count", initializer="zeros")
+
+        # Samples count
+        self.metric_count = self.add_weight(name="Count", initializer="zeros")
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
 
         y_true = tf.split(y_true, num_or_size_splits=4, axis=-1)
         # Split the logits from different levels
         y_pred = tf.split(tf.expand_dims(y_pred, axis=-1), num_or_size_splits=4, axis=1)
-        true_label = y_true[0]
+        true_logits = y_true[0]
         # Predicted label by taking an elementwise maximum across all layers
-        pred_label = tf.reduce_max(tf.concat(y_pred, axis=2), axis=2)
+        pred_logits = tf.reduce_max(tf.concat(y_pred, axis=2), axis=2)
 
-        m.update_state(true_label, pred_label)
+        # Get true and pred labels
+        true_labels = tf.argmax(true_logits, axis=-1)
+        pred_labels = tf.argmax(pred_logits, axis=-1)
 
-        return m.result()
+        correct_pred = true_labels == pred_labels
+        correct_pred = tf.cast(correct_pred, tf.float32)
 
-    _loss.__name__ = "acc"
+        # Number of samples in a given batch
+        count = tf.cast(K.shape(correct_pred)[0], self.dtype)
+        # Sum of metric value for the processed samples
+        self.metric.assign_add(K.sum(correct_pred))
+        # Total number of samples processed
+        self.metric_count.assign_add(count)
 
-    return _loss
+    def result(self):
+        # Average metric value
+        return self.metric / self.metric_count
+
+    def reset_states(self):
+        # metric state reset at the start of each epoch.
+        self.metric.assign(0.0)
+        self.metric_count.assign(0)
 
 
 if __name__ == "__main__":
