@@ -458,6 +458,19 @@ class Cifar:
                 ],
             )
 
+    def eval(self):
+        val_generator = DataGenerator(
+            batch_size=FLAGS.val_batch_size,
+            split="val",
+            cache=FLAGS.cache,
+            train_mode="combined",
+        )
+
+        metrics = self.combined.evaluate(
+            val_generator(),
+        )
+        print(metrics)
+
 
 if __name__ == "__main__":
     model = Cifar()

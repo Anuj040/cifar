@@ -16,7 +16,7 @@ flags.DEFINE_enum(
     ["both", "classifier", "pretrain", "combined"],
     "Whether to train encoder and classifier in succession or individually.",
 )
-
+flags.DEFINE_enum("mode", "train", ["train", "eval"], "Run training or evaluation")
 flags.DEFINE_integer("epochs", 10, "number of training epochs")
 flags.DEFINE_integer("train_batch_size", 32, "batchsize for train dataset")
 flags.DEFINE_integer("val_batch_size", 32, "batchsize for validation dataset")
@@ -28,7 +28,10 @@ flags.DEFINE_string("model_path", None, "Model file to resume training from")
 def main(argv):
 
     model = Cifar(FLAGS.model_path)
-    model.train(epochs=FLAGS.epochs)
+    if FLAGS.mode == "eval":
+        model.eval()
+    else:
+        model.train(epochs=FLAGS.epochs)
 
 
 if __name__ == "__main__":
