@@ -83,7 +83,7 @@ class MultiLayerAccuracy(tf.keras.metrics.Metric):
         Args:
             name (str, optional): Layer name. Defaults to "acc".
         """
-        super(MultiLayer, self).__init__(name=name, **kwargs)
+        super(MultiLayerAccuracy, self).__init__(name=name, **kwargs)
 
         # Stores the summation of metric value over the whole dataset
         self.metric = self.add_weight(name="true_count", initializer="zeros")
