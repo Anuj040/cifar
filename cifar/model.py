@@ -5,13 +5,14 @@ import sys
 sys.path.append("./")
 import numpy as np
 import tensorflow as tf
+import tensorflow.keras.backend as K
 import tensorflow.keras.layers as KL
 import tensorflow.keras.models as KM
 from absl import flags
 from keras_drop_block import DropBlock2D
 
 from cifar.utils.generator import DataGenerator
-from cifar.utils.losses import MultiLayerAccuracy, multi_layer_focal
+from cifar.utils.losses import MultiLayerAccuracy, contrastive_loss, multi_layer_focal
 
 FLAGS = flags.FLAGS
 
@@ -239,7 +240,9 @@ class Cifar:
             features=self.encoder_features, name="encoder"
         )
         encoded_features = self.encoder_model(input_tensor)
-
+        contrastive_features = KL.Lambda(lambda x: K.mean(x, [1, 2]), name="contrast")(
+            encoded_features[-1]
+        )
         # logits from the final layer of features of auto-encoder
         encoded_flat = KL.Flatten()(encoded_features[-1])
         encoded_flat = KL.Dropout(rate=0.2)(encoded_flat)
@@ -261,7 +264,11 @@ class Cifar:
         probs = KL.Lambda(lambda x: tf.concat(x, axis=-1), name="logits")(
             [probs] + pooled_probs
         )
-        return KM.Model(inputs=input_tensor, outputs=probs, name="classifier")
+        return KM.Model(
+            inputs=input_tensor,
+            outputs=[probs, contrastive_features],
+            name="classifier",
+        )
 
     def build_combined(self, num_classes: int = 10) -> KM.Model:
         """Method to build combined AE-classifier model
@@ -289,6 +296,9 @@ class Cifar:
         encoded_features = self.encoder_model(input_tensor)
         # Decode the image from the final layer features of Auto-encoder
         decoded = decoder(encoded_features[-1])
+        contrastive_features = KL.Lambda(lambda x: K.mean(x, [1, 2]), name="contrast")(
+            encoded_features[-1]
+        )
 
         # logits from the final layer of features of auto-encoder
         encoded_flat = KL.Flatten()(encoded_features[-1])
@@ -312,7 +322,11 @@ class Cifar:
             [probs] + pooled_probs
         )
 
-        return KM.Model(inputs=input_tensor, outputs=[decoded, probs], name="combined")
+        return KM.Model(
+            inputs=input_tensor,
+            outputs=[decoded, probs, contrastive_features],
+            name="combined",
+        )
 
     def compile(self, classifier_loss: str = "focal"):
         """method to compile the model object with optimizer, loss definitions and metrics
@@ -321,6 +335,7 @@ class Cifar:
             classifier_loss (str, optional): loss function to use for classifier training. Defaults to "focal".
 
         """
+        c_loss = contrastive_loss(hidden_norm=True, temperature=0.5, weights=1.0)
         if FLAGS.train_mode in ["both", "pretrain"]:
             self.model.compile(
                 optimizer=tf.keras.optimizers.Adam(
@@ -343,8 +358,11 @@ class Cifar:
                     learning_rate=FLAGS.lr
                     * (FLAGS.train_batch_size / 32)
                 ),
-                loss=focal if classifier_loss == "focal" else cce,
-                metrics=accuracy,
+                loss={
+                    "logits": focal if classifier_loss == "focal" else cce,
+                    "contrast": c_loss,
+                },
+                metrics={"logits": accuracy, "contrast": None},
                 loss_weights=10.0,
             )
         if FLAGS.train_mode == "combined":
@@ -357,9 +375,10 @@ class Cifar:
                 loss={
                     "decoder": "mse",
                     "logits": focal if classifier_loss == "focal" else cce,
+                    "contrast": c_loss,
                 },
-                metrics={"decoder": None, "logits": accuracy},
-                loss_weights={"decoder": 1.0, "logits": 20.0},
+                metrics={"decoder": None, "logits": accuracy, "contrast": None},
+                loss_weights={"decoder": 1.0, "logits": 10.0, "contrast": 1.0},
             )
 
     def train(self, epochs: int = 10, classifier_loss: str = "focal"):
@@ -407,6 +426,7 @@ class Cifar:
                 batch_size=FLAGS.train_batch_size,
                 split="train",
                 augment=True,
+                contrastive=True,
                 cache=FLAGS.cache,
                 shuffle=True,
                 train_mode="classifier",
@@ -414,6 +434,7 @@ class Cifar:
             val_generator_classifier = DataGenerator(
                 batch_size=FLAGS.val_batch_size,
                 split="val",
+                contrastive=True,
                 cache=FLAGS.cache,
                 train_mode="classifier",
             )
@@ -435,8 +456,8 @@ class Cifar:
                 validation_data=val_generator_classifier(),
                 callbacks=[
                     tf.keras.callbacks.ModelCheckpoint(
-                        "class_model/class_model_{epoch:04d}_{val_acc:.4f}.h5",
-                        monitor="val_acc",
+                        "class_model/class_model_{epoch:04d}_{val_logits_acc:.4f}.h5",
+                        monitor="val_logits_acc",
                         verbose=0,
                         save_best_only=True,
                         save_weights_only=False,
@@ -454,6 +475,7 @@ class Cifar:
                 batch_size=FLAGS.train_batch_size,
                 split="train",
                 augment=True,
+                contrastive=True,
                 shuffle=True,
                 cache=FLAGS.cache,
                 train_mode="combined",
@@ -461,6 +483,7 @@ class Cifar:
             val_generator = DataGenerator(
                 batch_size=FLAGS.val_batch_size,
                 split="val",
+                contrastive=True,
                 cache=FLAGS.cache,
                 train_mode="combined",
             )
