@@ -2,7 +2,10 @@ import os
 import re
 import sys
 
+from tensorflow.python.keras.metrics import accuracy
+
 sys.path.append("./")
+import numpy as np
 import tensorflow as tf
 import tensorflow.keras.layers as KL
 import tensorflow.keras.models as KM
@@ -72,7 +75,22 @@ class Cifar:
         if FLAGS.train_mode in ["both", "pretrain"]:
             self.model = self.build()
         if FLAGS.train_mode in ["both", "classifier"]:
-            self.classifier = self.build_classify(num_classes=10)
+            if model_path:
+                # Load the model from saved ".h5" file
+                print(f"\nloading model ...\n")
+                print(model_path)
+                self.classifier = KM.load_model(
+                    filepath=model_path,
+                    custom_objects={
+                        "mlti": multi_layer_focal(),
+                        "MultiLayerAccuracy": MultiLayerAccuracy(),
+                    },
+                    compile=True,
+                )
+                # set epoch number
+                self.set_epoch(model_path)
+            else:
+                self.classifier = self.build_classify(num_classes=10)
         if FLAGS.train_mode == "combined":
 
             if model_path:
@@ -84,7 +102,7 @@ class Cifar:
                     custom_objects={
                         "DropBlock2D": DropBlock2D,
                         "mlti": multi_layer_focal(),
-                        "acc": MultiLayerAccuracy(),
+                        "MultiLayerAccuracy": MultiLayerAccuracy(),
                     },
                     compile=True,
                 )
@@ -477,13 +495,49 @@ class Cifar:
             batch_size=FLAGS.val_batch_size,
             split="val",
             cache=FLAGS.cache,
-            train_mode="combined",
+            train_mode="classifier",
         )
+        if FLAGS.train_mode == "combined":
+            model = KM.Model(
+                inputs=self.combined.input,
+                outputs=self.combined.get_layer("logits").output,
+            )
+        elif FLAGS.train_mode == "classifier":
+            model = self.classifier
 
-        metrics = self.combined.evaluate(
-            val_generator(),
-        )
-        print(metrics)
+        # initialize the array to store preds for each label
+        accuracy = np.zeros((10, 10), dtype=int)
+
+        for input, true_logits in val_generator():
+            pred_logits = model.predict(input)
+
+            true_logits = tf.split(true_logits, num_or_size_splits=4, axis=-1)
+            true_logits = true_logits[0]
+
+            # Split the logits from different levels
+            pred_logits = tf.split(
+                tf.expand_dims(pred_logits, axis=-1), num_or_size_splits=4, axis=1
+            )
+            # Predicted label by taking an elementwise maximum across all layers
+            pred_logits = tf.reduce_max(tf.concat(pred_logits, axis=2), axis=2)
+
+            # Get true and pred labels
+            true_labels = tf.argmax(true_logits, axis=-1)
+            pred_labels = tf.argmax(pred_logits, axis=-1)
+            for i, gt_label in enumerate(true_labels):
+                pred_label = int(pred_labels[i])
+                accuracy[int(gt_label)][pred_label] += 1
+
+        import matplotlib.pyplot as plt
+        import seaborn as sn
+
+        plt.figure(figsize=(10, 7))
+        sn.heatmap(accuracy / np.sum(accuracy, axis=-1), annot=True)
+        plt.show()
+        # metrics = self.combined.evaluate(
+        #     val_generator(),
+        # )
+        # print(metrics)
 
 
 if __name__ == "__main__":
