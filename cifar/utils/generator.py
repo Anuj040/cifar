@@ -203,6 +203,7 @@ class DataGenerator:
         train_mode (str, optional): Training feature extractor or classifier. Defaults to "pretrain".
         batch_size (int, optional): Defaults to 32.
         augment (bool, optional): whether to augment the images. Defaults to False.
+        contrastive (bool, optional): whether to apply contrastive loss for model training. Defaults to False.
         shuffle (bool, optional): whether to shuffle the dataset. Defaults to False.
         cache (bool, optional): dataset will be cached or not. Defaults to False.
         buffer_multiplier (int, optional): Buffer to maintain for faster training. Defaults to 5.
@@ -215,6 +216,7 @@ class DataGenerator:
         train_mode: str = "pretrain",
         batch_size: int = 32,
         augment: bool = False,
+        contrastive: bool = False,
         shuffle: bool = False,
         cache: bool = False,
         buffer_multiplier: int = 5,
@@ -225,6 +227,7 @@ class DataGenerator:
         self.train_mode = train_mode
         self.batch_size = batch_size
         self.augment = augment
+        self.contrast = contrastive
 
         # Retrieve the dataset
         ds, ds_info = tfds.load(
@@ -370,7 +373,14 @@ class DataGenerator:
 
         # Whether to apply augmentation
         if self.augment:
-            image = image_augmenter(image)
+            if self.contrast:
+                image_aug = []
+                # Two different augmentated versions for each image
+                for _ in range(2):
+                    image_aug.append(image_augmenter(image))
+                image = tf.concat(image_aug, axis=-1)
+            else:
+                image = image_augmenter(image)
 
         if self.split == "train" and self.train_mode == "pretrain":
             return image, image
@@ -390,12 +400,28 @@ class DataGenerator:
         Returns:
             Tuple[tf.Tensor, tf.Tensor]: input/output tensor pair
         """
+        if self.contrast:
+            if self.split == "train":
+                # Take the two augmented versions of a single batch concatenated along the channels dimension
+                # concatenate them along the batch dimension to make input image batch double the specified batch_size
+                input_1 = tf.concat(
+                    tf.split(input_1, num_or_size_splits=2, axis=-1), axis=0
+                )
+            else:
+                # Duplicate batch for contrastive loss calculations
+                input_1 = tf.tile(input_1, [2, 1, 1, 1])
+            input_2 = tf.tile(input_2, [2, 1])
 
         def _augmenter(input_1, input_2):
             # Random mixing proportions for different elements
-            mixup_proportions = tf.random.uniform(
-                shape=[self.batch_size, 1, 1, 1], minval=0.0, maxval=1.0
-            )
+            if self.contrast:
+                mixup_proportions = tf.random.uniform(
+                    shape=[2 * self.batch_size, 1, 1, 1], minval=0.0, maxval=1.0
+                )
+            else:
+                mixup_proportions = tf.random.uniform(
+                    shape=[self.batch_size, 1, 1, 1], minval=0.0, maxval=1.0
+                )
 
             input_1 = (
                 mixup_proportions * input_1
@@ -427,10 +453,16 @@ class DataGenerator:
             lambda: _augmenter(input_1, input_2),
             lambda: (input_1, tf.concat([input_2] * 4, axis=-1)),
         )
-        if self.train_mode == "combined":
-            # image, (image, one-hot label * 4 )
-            return input_1, (input_1, input_2)
-        return input_1, input_2
+        if self.contrast:
+            if self.train_mode == "combined":
+                # image, (image, one-hot label * 4, dummy variable)
+                return input_1, (input_1, input_2, np.zeros((2 * self.batch_size)))
+            return input_1, (input_2, np.zeros((2 * self.batch_size)))
+        else:
+            if self.train_mode == "combined":
+                # image, (image, one-hot label * 4 )
+                return input_1, (input_1, input_2)
+            return input_1, input_2
 
     def __call__(self, *args, **kwargs) -> tf.data.Dataset:
         if self.split == "train":
@@ -444,15 +476,20 @@ class DataGenerator:
 
 
 if __name__ == "__main__":
-    train_generator = DataGenerator(
-        batch_size=2, shuffle=True, augment=True, train_mode="combined"
-    )
+    # train_generator = DataGenerator(
+    #     batch_size=2,
+    #     shuffle=True,
+    #     augment=True,
+    #     contrastive=True,
+    #     train_mode="combined",
+    # )
     # test_generator = DataGenerator(split="test")
-    # val_generator = DataGenerator(split="val", train_mode="classifier")
+    val_generator = DataGenerator(split="val", contrastive=True, train_mode="combined")
     # print(len(test_generator))
     # print(len(train_generator))
     # print(len(val_generator))
-    for a, (b, c) in train_generator().take(1):
-        print(a)
-        print(b)
-        print(c)
+    for a, (b, c, d) in val_generator().take(1):
+        print(a.shape)
+        # print(b)
+        print(c.shape)
+        print(d)
