@@ -2,6 +2,8 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.keras.backend as K
 
+LARGE_NUM = 1e9
+
 
 def categorical_focal_loss(alpha: float = 0.25, gamma: float = 2.0):
     """Softmax version of focal loss.
@@ -124,6 +126,66 @@ class MultiLayerAccuracy(tf.keras.metrics.Metric):
         # metric state reset at the start of each epoch.
         self.metric.assign(0.0)
         self.metric_count.assign(0)
+
+
+def contrastive_loss(
+    hidden_norm: bool = True, temperature: float = 1.0, weights: float = 1.0
+):
+    """method for implementing contrastive loss
+
+    Args:
+        hidden_norm (bool, optional): whether or not to use normalization on the hidden vector. Defaults to True.
+        temperature (float, optional): temperature scaling. Defaults to 1.0.
+        weights (float, optional): weighing factor. Defaults to 1.0.
+
+    Returns:
+        loss function.
+    """
+
+    def _loss(y_true: tf.Tensor, hidden: tf.Tensor):
+        """
+        Args:
+        hidden: hidden vector (`Tensor`) of shape (bsz, dim).
+        """
+        # Get (normalized) hidden1 and hidden2.
+        if hidden_norm:
+            hidden = tf.math.l2_normalize(hidden, -1)
+        # Split the feature vectors between Augmentation1 and Augmentation2 of the same image
+        hidden1, hidden2 = tf.split(hidden, 2, 0)
+        batch_size = tf.shape(hidden1)[0]
+
+        labels = tf.one_hot(tf.range(batch_size), batch_size * 2)
+        masks = tf.one_hot(tf.range(batch_size), batch_size)
+
+        # Cosine distance between the feature vectors from Augmentation1
+        logits_aa = tf.matmul(hidden1, hidden1, transpose_b=True) / temperature
+        # Remove the contribution from the cosine distance of the vector with self
+        logits_aa = logits_aa - masks * LARGE_NUM
+
+        # Cosine distance between the feature vectors from Augmentation2
+        logits_bb = tf.matmul(hidden2, hidden2, transpose_b=True) / temperature
+        # Remove the contribution from the cosine distance of the vector with self
+        logits_bb = logits_bb - masks * LARGE_NUM
+
+        # Cosine distance between the feature vectors from Augmentation1 and Augmentation2
+        logits_ab = tf.matmul(hidden1, hidden2, transpose_b=True) / temperature
+        # Cosine distance between the feature vectors from Augmentation2 and Augmentation1
+        logits_ba = tf.matmul(hidden2, hidden1, transpose_b=True) / temperature
+
+        loss_a = tf.losses.CategoricalCrossentropy(from_logits=True)(
+            labels, tf.concat([logits_ab, logits_aa], 1), sample_weight=weights
+        )
+        loss_b = tf.losses.CategoricalCrossentropy(from_logits=True)(
+            labels, tf.concat([logits_ba, logits_bb], 1), sample_weight=weights
+        )
+        loss = loss_a + loss_b
+        loss = weights * loss
+
+        return loss
+
+    _loss.__name__ = "con"
+
+    return _loss
 
 
 if __name__ == "__main__":
