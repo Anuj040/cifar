@@ -1,3 +1,4 @@
+import functools
 from typing import Tuple
 
 import numpy as np
@@ -57,6 +58,98 @@ def random_apply(func, p: float, image: tf.Tensor) -> tf.Tensor:
     )
 
 
+def color_jitter_transform(
+    image: tf.Tensor,
+    brightness: float = 0.0,
+    contrast: float = 0.0,
+    saturation: float = 0.0,
+    hue: float = 0.0,
+) -> tf.Tensor:
+    """Distorts the color of the image (jittering order is random).
+
+    Args:
+      image: The input image tensor.
+      brightness: A float, specifying the brightness for color jitter.
+      contrast: A float, specifying the contrast for color jitter.
+      saturation: A float, specifying the saturation for color jitter.
+      hue: A float, specifying the hue for color jitter.
+
+    Returns:
+      The distorted image tensor.
+    """
+    with tf.name_scope("distort_color"):
+
+        def apply_transform(i, x):
+            """Apply the i-th transformation."""
+
+            def brightness_foo():
+                if brightness == 0:
+                    return x
+                else:
+                    return tf.image.random_brightness(x, max_delta=brightness)
+
+            def contrast_foo():
+                if contrast == 0:
+                    return x
+                else:
+                    return tf.image.random_contrast(
+                        x, lower=1 - contrast, upper=1 + contrast
+                    )
+
+            def saturation_foo():
+                if saturation == 0:
+                    return x
+                else:
+                    return tf.image.random_saturation(
+                        x, lower=1 - saturation, upper=1 + saturation
+                    )
+
+            def hue_foo():
+                if hue == 0:
+                    return x
+                else:
+                    return tf.image.random_hue(x, max_delta=hue)
+
+            x = tf.cond(
+                tf.less(i, 2),
+                lambda: tf.cond(tf.less(i, 1), brightness_foo, contrast_foo),
+                lambda: tf.cond(tf.less(i, 3), saturation_foo, hue_foo),
+            )
+            return x
+
+        perm = tf.random.shuffle(tf.range(4))
+        for i in range(4):
+            image = apply_transform(perm[i], image)
+            image = tf.clip_by_value(image, -1.0, 1.0)
+        return image
+
+
+def color_jitter(image: tf.Tensor, strength: float) -> tf.Tensor:
+    """Distorts the color of the image.
+
+    Args:
+      image (tf.Tensor): The input image tensor.
+      strength (tf.Tensor): the floating number for the strength of the color augmentation.
+
+    Returns:
+      The distorted image tensor.
+    """
+    brightness = 0.8 * strength
+    contrast = 0.8 * strength
+    saturation = 0.8 * strength
+    hue = 0.2 * strength
+    return color_jitter_transform(image, brightness, contrast, saturation, hue)
+
+
+def to_grayscale(image: tf.Tensor) -> tf.Tensor:
+    """
+    returns a 3-channel grayscale image
+    """
+    image = tf.image.rgb_to_grayscale(image)
+    image = tf.tile(image, [1, 1, 3])
+    return image
+
+
 def image_augmenter(image: tf.Tensor) -> tf.Tensor:
     """Augmenter method working on single images
 
@@ -85,9 +178,19 @@ def image_augmenter(image: tf.Tensor) -> tf.Tensor:
 
         return image
 
+    def random_color_jitter(image: tf.Tensor, p: float = 1.0) -> tf.Tensor:
+        def _transform(image: tf.Tensor) -> tf.Tensor:
+
+            color_jitter_t = functools.partial(color_jitter, strength=0.5)
+            image = random_apply(color_jitter_t, p=0.8, image=image)
+            return random_apply(to_grayscale, p=0.2, image=image)
+
+        return random_apply(_transform, p=p, image=image)
+
     image = random_apply(fliplr, p=0.5, image=image)
     image = random_apply(flipud, p=0.5, image=image)
     image = random_apply(crop_and_resize, p=0.5, image=image)
+    image = random_apply(random_color_jitter, p=0.5, image=image)
 
     return image
 
