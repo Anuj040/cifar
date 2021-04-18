@@ -2,8 +2,6 @@ import os
 import re
 import sys
 
-from tensorflow.python.keras.metrics import accuracy
-
 sys.path.append("./")
 import numpy as np
 import tensorflow as tf
@@ -336,7 +334,7 @@ class Cifar:
         cce = tf.keras.losses.CategoricalCrossentropy(
             from_logits=True, label_smoothing=0.1
         )
-        focal = multi_layer_focal()
+        focal = multi_layer_focal(gamma=FLAGS.gamma)
         accuracy = MultiLayerAccuracy()
         if FLAGS.train_mode in ["both", "classifier"]:
             self.classifier.compile(

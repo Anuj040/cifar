@@ -47,17 +47,19 @@ def categorical_focal_loss(alpha: float = 0.25, gamma: float = 2.0):
     return _loss
 
 
-def multi_layer_focal(weight: float = 1.0):
+def multi_layer_focal(weight: float = 1.0, alpha: float = 0.25, gamma: float = 2.0):
     """custom layer to calculate focal loss on logits taken from multiple latent vectors
 
     Args:
         weight (float, optional): weighing factor. Defaults to 1.0.
+        alpha (float, optional): [description]. Defaults to 0.25.
+        gamma (float, optional): focusing parameter for modulating factor (1-p) for focal loss. Defaults to 2.0.
 
     Returns:
         function: loss calculating function
     """
     # focal loss calculating function
-    focal = categorical_focal_loss()
+    focal = categorical_focal_loss(alpha=alpha, gamma=gamma)
 
     def _loss(y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
 
