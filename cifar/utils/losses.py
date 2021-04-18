@@ -173,12 +173,12 @@ def contrastive_loss(
         logits_ba = tf.matmul(hidden2, hidden1, transpose_b=True) / temperature
 
         loss_a = tf.losses.CategoricalCrossentropy(from_logits=True)(
-            labels, tf.concat([logits_ab, logits_aa], 1), sample_weight=weights
+            labels, tf.concat([logits_ab, logits_aa], 1)
         )
         loss_b = tf.losses.CategoricalCrossentropy(from_logits=True)(
-            labels, tf.concat([logits_ba, logits_bb], 1), sample_weight=weights
+            labels, tf.concat([logits_ba, logits_bb], 1)
         )
-        loss = loss_a + loss_b
+        loss = tf.reduce_mean(loss_a + loss_b)
         loss = weights * loss
 
         return loss
