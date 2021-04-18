@@ -363,7 +363,7 @@ class Cifar:
                     "contrast": c_loss,
                 },
                 metrics={"logits": accuracy, "contrast": None},
-                loss_weights=10.0,
+                loss_weights={"logits": 10.0, "contrast": 1.0},
             )
         if FLAGS.train_mode == "combined":
             self.combined.compile(
