@@ -20,7 +20,7 @@ def categorical_focal_loss(alpha: float = 0.25, gamma: float = 2.0):
         function: loss calculating function
     """
 
-    def _loss(y_true: tf.Tensor, y_pred: tf.Tensor):
+    def _loss(y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
 
         """focal loss calculating function
 
@@ -118,7 +118,7 @@ class MultiLayerAccuracy(tf.keras.metrics.Metric):
         # Total number of samples processed
         self.metric_count.assign_add(count)
 
-    def result(self):
+    def result(self) -> tf.Tensor:
         # Average metric value
         return self.metric / self.metric_count
 
@@ -142,10 +142,10 @@ def contrastive_loss(
         loss function.
     """
 
-    def _loss(y_true: tf.Tensor, hidden: tf.Tensor):
+    def _loss(y_true: tf.Tensor, hidden: tf.Tensor) -> tf.Tensor:
         """
         Args:
-        hidden: hidden vector (`Tensor`) of shape (bsz, dim).
+        hidden (tf.Tensor): hidden vector of shape (2*bsz, dim).
         """
         # Get (normalized) hidden1 and hidden2.
         if hidden_norm:
