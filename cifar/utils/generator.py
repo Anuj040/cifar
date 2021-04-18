@@ -316,8 +316,8 @@ class DataGenerator:
                 # Default number of times an element will be repeated
                 repeat_count = tf.constant(1, tf.int64)
 
-                # Repeat only half of the undersampled samples
-                residual = tf.less_equal(tf.random.uniform([], dtype=tf.float32), 0.5)
+                # Repeat the undersampled samples
+                residual = tf.less_equal(tf.random.uniform([], dtype=tf.float32), 1.0)
                 residual = tf.cast(residual, tf.int64)
 
                 return tf.cond(
@@ -419,7 +419,7 @@ class DataGenerator:
                 tf.less(
                     tf.random.uniform([], minval=0, maxval=1, dtype=tf.float32),
                     tf.cast(
-                        0.1, tf.float32
+                        0.0, tf.float32
                     ),  # Only mixup augmentation to 10% of the batches
                 ),
                 self.augment,
