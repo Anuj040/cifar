@@ -370,7 +370,7 @@ class Cifar:
                     "contrast": c_loss,
                 },
                 metrics={"logits": accuracy, "contrast": None},
-                loss_weights={"logits": 10.0, "contrast": 1.0},
+                loss_weights={"logits": 10.0, "contrast": 0.0},
             )
         if FLAGS.train_mode == "combined":
             self.combined.compile(
@@ -385,7 +385,7 @@ class Cifar:
                     "contrast": c_loss,
                 },
                 metrics={"decoder": None, "logits": accuracy, "contrast": None},
-                loss_weights={"decoder": 1.0, "logits": 10.0, "contrast": 1.0},
+                loss_weights={"decoder": 1.0, "logits": 10.0, "contrast": 0.0},
             )
 
     def callbacks(self, val_generator: DataGenerator) -> List[Callback]:
