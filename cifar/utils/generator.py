@@ -400,16 +400,12 @@ class DataGenerator:
         Returns:
             Tuple[tf.Tensor, tf.Tensor]: input/output tensor pair
         """
-        if self.contrast:
-            if self.split == "train":
-                # Take the two augmented versions of a single batch concatenated along the channels dimension
-                # concatenate them along the batch dimension to make input image batch double the specified batch_size
-                input_1 = tf.concat(
-                    tf.split(input_1, num_or_size_splits=2, axis=-1), axis=0
-                )
-            else:
-                # Duplicate batch for contrastive loss calculations
-                input_1 = tf.tile(input_1, [2, 1, 1, 1])
+        if self.contrast and self.split == "train":
+            # Take the two augmented versions of a single batch concatenated along the channels dimension
+            # concatenate them along the batch dimension to make input image batch double the specified batch_size
+            input_1 = tf.concat(
+                tf.split(input_1, num_or_size_splits=2, axis=-1), axis=0
+            )
             input_2 = tf.tile(input_2, [2, 1])
 
         def _augmenter(input_1, input_2):
