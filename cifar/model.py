@@ -23,7 +23,7 @@ FLAGS = flags.FLAGS
 
 def deconv_block(input_tensor: tf.Tensor, features: int, name: str) -> tf.Tensor:
     """Bottleneck style deconvolutional block. Applies convolution to decrease to fewer features.
-    upscales in lower feature space. Convols to specified feature numbers
+    upscales in lower feature space. Convolves to specified feature numbers
 
     Args:
         input_tensor (tf.Tensor): tensor to apply deconvolution to
@@ -64,16 +64,55 @@ def deconv_block(input_tensor: tf.Tensor, features: int, name: str) -> tf.Tensor
 
 
 def conv_block(
-    input_tensor: tf.Tensor, skip_tensors: List[tf.Tensor], features: int, name: str
+    input_tensor: tf.Tensor,
+    skip_tensors: List[tf.Tensor],
+    features_in: int,
+    features_out: int,
+    name: str,
 ) -> Tuple[tf.Tensor, List[tf.Tensor]]:
+    """Bottleneck style convolutional block with skip connections across blocks. Applies downsample convolution in lower features space.
+    Followed by single kernel convolution to higher feature space. Also, applies skip connections across blocks for routing information
+    across levels.
+
+    Args:
+        input_tensor (tf.Tensor): tensor to apply convolution to
+        skip_tensors (List[tf.Tensor]): list of output tensors from previous blocks
+        features_in (int): number of features for incoming layer
+        features_out (int): number of features for outgoing layer
+        name (str): name for the tensors
+
+    Returns:
+        Tuple[tf.Tensor, List[tf.Tensor]]: output tensor, list of tensors to route info to next levels
+    """
+
     out = KL.Conv2D(
-        features,
-        3,
-        strides=(2, 2),
+        features_in,
+        1,
+        strides=(1, 1),
         padding="same",
         use_bias=False,
         name=name + f"_c{1}",
     )(input_tensor)
+    out = KL.BatchNormalization()(out)
+
+    out = KL.Conv2D(
+        features_in,
+        3,
+        strides=(2, 2),
+        padding="same",
+        use_bias=False,
+        name=name + f"_c{2}",
+    )(out)
+    out = KL.BatchNormalization()(out)
+
+    out = KL.Conv2D(
+        features_out,
+        1,
+        strides=(1, 1),
+        padding="same",
+        use_bias=False,
+        name=name + f"_c{3}",
+    )(out)
     out = KL.BatchNormalization()(out)
 
     skip_tensors_next = []
@@ -177,6 +216,7 @@ class Cifar:
         encoded_list = [encoded]
 
         skip_tensors = [
+            # Routing info from input tensor to next levels
             KL.AveragePooling2D(pool_size=(2, 2), strides=2)(
                 KL.Activation("relu")(
                     KL.BatchNormalization()(
@@ -186,13 +226,15 @@ class Cifar:
                     )
                 )
             ),
+            # Routes info from second level to next levels
             encoded,
         ]
         for i, feature_num in enumerate(features[1:], start=2):
             encoded, skip_tensors = conv_block(
                 encoded,
                 skip_tensors,
-                features=feature_num,
+                features_in=features[i - 2],
+                features_out=feature_num,
                 name=name + f"_conv_{i}",
             )
             encoded_list.append(encoded)
