@@ -128,6 +128,39 @@ def conv_block(
     return out, skip_tensors_next
 
 
+def classifier_block(
+    encoded_features: List[tf.Tensor], num_classes: int = 10
+) -> List[tf.Tensor]:
+    """[summary]
+
+    Args:
+        encoded_features (List[tf.Tensor]): list of latent feature tensors from different levels
+        num_classes (int, optional): total classes. Defaults to 10.
+
+    Returns:
+        List[tf.Tensor]: class logits from different levels
+    """
+
+    # logits from the final layer of features of auto-encoder
+    encoded_flat = KL.Flatten()(encoded_features[-1])
+    encoded_flat = KL.Dropout(rate=0.2)(encoded_flat)
+    probs = KL.Dense(num_classes, activation="sigmoid", name="logits_n")(encoded_flat)
+
+    # logits from the all but last layer of features of auto-encoder
+    pooled_probs = [
+        KL.Dense(num_classes, activation="sigmoid", name=f"logits_{i}")(
+            KL.Dropout(rate=0.2)(KL.Flatten()(KL.GlobalAveragePooling2D()(features)))
+        )
+        for i, features in enumerate(encoded_features[:-1], start=1)
+    ]
+
+    # concatenated logits from all the layers
+    probs = KL.Lambda(lambda x: tf.concat(x, axis=-1), name="logits")(
+        [probs] + pooled_probs
+    )
+    return probs
+
+
 class Cifar:
     def __init__(self, model_path: str) -> None:
         """
@@ -138,7 +171,7 @@ class Cifar:
         self.model_path = model_path
 
         # Number of features in successive hidden layers of encoder
-        self.encoder_features = [64, 128, 256, 512, 1024]
+        self.encoder_features = [128, 256, 512, 1024]
 
         if FLAGS.train_mode in ["both", "pretrain"]:
             self.model = self.build()
@@ -345,27 +378,9 @@ class Cifar:
         contrastive_features = KL.Lambda(lambda x: K.mean(x, [1, 2]), name="contrast")(
             encoded_features[-1]
         )
-        # logits from the final layer of features of auto-encoder
-        encoded_flat = KL.Flatten()(encoded_features[-1])
-        encoded_flat = KL.Dropout(rate=0.2)(encoded_flat)
-        probs = KL.Dense(num_classes, activation="sigmoid", name="logits_n")(
-            encoded_flat
-        )
+        # Calculate class probs from multiple latent representations
+        probs = classifier_block(encoded_features, num_classes=num_classes)
 
-        # logits from the all but last layer of features of auto-encoder
-        pooled_probs = [
-            KL.Dense(num_classes, activation="sigmoid", name=f"logits_{i}")(
-                KL.Dropout(rate=0.2)(
-                    KL.Flatten()(KL.GlobalAveragePooling2D()(features))
-                )
-            )
-            for i, features in enumerate(encoded_features[:-1], start=1)
-        ]
-
-        # concatenated logits from all the layers
-        probs = KL.Lambda(lambda x: tf.concat(x, axis=-1), name="logits")(
-            [probs] + pooled_probs
-        )
         return KM.Model(
             inputs=input_tensor,
             outputs=[probs, contrastive_features],
@@ -401,28 +416,8 @@ class Cifar:
         contrastive_features = KL.Lambda(lambda x: K.mean(x, [1, 2]), name="contrast")(
             encoded_features[-1]
         )
-
-        # logits from the final layer of features of auto-encoder
-        encoded_flat = KL.Flatten()(encoded_features[-1])
-        encoded_flat = KL.Dropout(rate=0.2)(encoded_flat)
-        probs = KL.Dense(num_classes, activation="sigmoid", name="logits_n")(
-            encoded_flat
-        )
-
-        # logits from the all but last layer of features of auto-encoder
-        pooled_probs = [
-            KL.Dense(num_classes, activation="sigmoid", name=f"logits_{i}")(
-                KL.Dropout(rate=0.2)(
-                    KL.Flatten()(KL.GlobalAveragePooling2D()(features))
-                )
-            )
-            for i, features in enumerate(encoded_features[:-1], start=1)
-        ]
-
-        # concatenated logits from all the layers
-        probs = KL.Lambda(lambda x: tf.concat(x, axis=-1), name="logits")(
-            [probs] + pooled_probs
-        )
+        # Calculate class probs from multiple latent representations
+        probs = classifier_block(encoded_features, num_classes=num_classes)
 
         return KM.Model(
             inputs=input_tensor,
