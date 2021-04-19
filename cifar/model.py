@@ -138,7 +138,8 @@ class Cifar:
         self.model_path = model_path
 
         # Number of features in successive hidden layers of encoder
-        self.encoder_features = [128, 256, 512, 1024]
+        self.encoder_features = [64, 128, 256, 512, 1024]
+        self.n_blocks = len(self.encoder_features)
 
         if FLAGS.train_mode in ["both", "pretrain"]:
             self.model = self.build()
@@ -438,8 +439,8 @@ class Cifar:
         cce = tf.keras.losses.CategoricalCrossentropy(
             from_logits=True, label_smoothing=0.1
         )
-        focal = multi_layer_focal(gamma=FLAGS.gamma)
-        accuracy = MultiLayerAccuracy()
+        focal = multi_layer_focal(gamma=FLAGS.gamma, layers=self.n_blocks)
+        accuracy = MultiLayerAccuracy(layers=self.n_blocks)
         if FLAGS.train_mode in ["both", "classifier"]:
             self.classifier.compile(
                 optimizer=tf.keras.optimizers.Adam(
@@ -518,6 +519,7 @@ class Cifar:
         val_generator = DataGenerator(
             batch_size=FLAGS.val_batch_size,
             split="val",
+            layers=self.n_blocks,
             cache=FLAGS.cache,
             train_mode="classifier",
         )
@@ -553,6 +555,7 @@ class Cifar:
             train_generator_classifier = DataGenerator(
                 batch_size=FLAGS.train_batch_size,
                 split="train",
+                layers=self.n_blocks,
                 augment=True,
                 contrastive=True,
                 cache=FLAGS.cache,
@@ -585,6 +588,7 @@ class Cifar:
             train_generator = DataGenerator(
                 batch_size=FLAGS.train_batch_size,
                 split="train",
+                layers=self.n_blocks,
                 augment=True,
                 contrastive=True,
                 shuffle=True,
@@ -609,6 +613,7 @@ class Cifar:
         val_generator = DataGenerator(
             batch_size=FLAGS.val_batch_size,
             split="val",
+            layers=self.n_blocks,
             cache=FLAGS.cache,
             train_mode="classifier",
         )

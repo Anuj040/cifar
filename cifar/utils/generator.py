@@ -200,6 +200,7 @@ class DataGenerator:
 
     Args:
         split (str, optional): dataset split to use. Defaults to "train".
+        layers (int, optional): number of layers to take classification tensor from. Defaults to 1.
         train_mode (str, optional): Training feature extractor or classifier. Defaults to "pretrain".
         batch_size (int, optional): Defaults to 32.
         augment (bool, optional): whether to augment the images. Defaults to False.
@@ -213,6 +214,7 @@ class DataGenerator:
     def __init__(
         self,
         split: str = "train",
+        layers: int = 1,
         train_mode: str = "pretrain",
         batch_size: int = 32,
         augment: bool = False,
@@ -224,6 +226,7 @@ class DataGenerator:
         assert split in ["train", "test", "val"]
         self.split = split
         assert train_mode in ["pretrain", "classifier", "combined"]
+        self.layers = layers
         self.train_mode = train_mode
         self.batch_size = batch_size
         self.augment = augment
@@ -430,7 +433,7 @@ class DataGenerator:
                     mixup_proportions * input_2
                     + (1 - mixup_proportions) * input_2[::-1, ...]
                 )
-                input_2 = tf.concat([input_2] * 4, axis=-1)
+                input_2 = tf.concat([input_2] * self.layers, axis=-1)
             else:
                 # For pretraining, input and output are the same.
                 input_2 = input_1
@@ -447,7 +450,7 @@ class DataGenerator:
                 self.augment,
             ),
             lambda: _augmenter(input_1, input_2),
-            lambda: (input_1, tf.concat([input_2] * 4, axis=-1)),
+            lambda: (input_1, tf.concat([input_2] * self.layers, axis=-1)),
         )
         if self.contrast:
             if self.train_mode == "combined":
