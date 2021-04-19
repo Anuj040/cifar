@@ -139,7 +139,6 @@ class Cifar:
 
         # Number of features in successive hidden layers of encoder
         self.encoder_features = [64, 128, 256, 512, 1024]
-        self.n_blocks = len(self.encoder_features)
 
         if FLAGS.train_mode in ["both", "pretrain"]:
             self.model = self.build()
@@ -153,13 +152,20 @@ class Cifar:
                     custom_objects={
                         "mlti": multi_layer_focal(),
                         "MultiLayerAccuracy": MultiLayerAccuracy(),
+                        "con": contrastive_loss(),
                     },
                     compile=True,
                 )
+                # Number of encoder feature levels
+                self.n_blocks = len(self.classifier.get_layer("encoder").output)
+
                 # set epoch number
                 self.set_epoch(model_path)
             else:
                 self.classifier = self.build_classify(num_classes=10)
+                # Number of encoder feature levels
+                self.n_blocks = len(self.encoder_features)
+
                 # Initialize the epoch counter for model training
                 self.epoch = 0
 
@@ -175,13 +181,19 @@ class Cifar:
                         "DropBlock2D": DropBlock2D,
                         "mlti": multi_layer_focal(),
                         "MultiLayerAccuracy": MultiLayerAccuracy(),
+                        "con": contrastive_loss(),
                     },
                     compile=True,
                 )
+                # Number of encoder feature levels
+                self.n_blocks = len(self.combined.get_layer("encoder").output)
+
                 # set epoch number
                 self.set_epoch(model_path)
             else:
                 self.combined = self.build_combined(num_classes=10)
+                # Number of encoder feature levels
+                self.n_blocks = len(self.encoder_features)
 
                 # Initialize the epoch counter for model training
                 self.epoch = 0
