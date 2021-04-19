@@ -1,7 +1,7 @@
 import os
 import re
 import sys
-from typing import List
+from typing import List, Tuple
 
 from tensorflow.python.keras.callbacks import Callback, ModelCheckpoint
 
@@ -61,6 +61,33 @@ def deconv_block(input_tensor: tf.Tensor, features: int, name: str) -> tf.Tensor
     out = KL.Activation("relu")(KL.BatchNormalization()(out))
 
     return out
+
+
+def conv_block(
+    input_tensor: tf.Tensor, skip_tensors: List[tf.Tensor], features: int, name: str
+) -> Tuple[tf.Tensor, List[tf.Tensor]]:
+    out = KL.Conv2D(
+        features,
+        3,
+        strides=(2, 2),
+        padding="same",
+        name=name + f"_c{1}",
+    )(input_tensor)
+    out = KL.BatchNormalization()(out)
+
+    skip_tensors_next = []
+    for i, feature_tensor in enumerate(skip_tensors, start=1):
+        feature_tensor = KL.AveragePooling2D(pool_size=(2, 2), strides=2)(
+            feature_tensor
+        )
+        skip_tensors_next.append(feature_tensor)
+    skip_connection = tf.concat(skip_tensors_next, axis=-1)
+
+    out = out + KL.BatchNormalization()(skip_connection)
+
+    out = KL.Activation("relu", name=name + "_relu")(out)
+    skip_tensors_next.append(out)
+    return out, skip_tensors_next
 
 
 class Cifar:
@@ -143,18 +170,25 @@ class Cifar:
             features[0],
             3,
             strides=(2, 2),
+            padding="same",
             name=name + f"_conv_{1}",
         )(input_tensor)
         encoded = KL.Activation("relu")(KL.BatchNormalization()(encoded))
         encoded_list = [encoded]
+
+        skip_tensors = [
+            KL.AveragePooling2D(pool_size=(2, 2), strides=2)(
+                KL.Conv2D(features[0], 1, strides=1)(input_tensor)
+            ),
+            encoded,
+        ]
         for i, feature_num in enumerate(features[1:], start=2):
-            encoded = KL.Conv2D(
-                feature_num,
-                3,
-                strides=(2, 2),
+            encoded, skip_tensors = conv_block(
+                encoded,
+                skip_tensors,
+                features=feature_num,
                 name=name + f"_conv_{i}",
-            )(encoded)
-            encoded = KL.Activation("relu")(KL.BatchNormalization()(encoded))
+            )
             encoded_list.append(encoded)
         return KM.Model(inputs=input_tensor, outputs=encoded_list, name=name)
 
@@ -370,7 +404,7 @@ class Cifar:
                     "contrast": c_loss,
                 },
                 metrics={"logits": accuracy, "contrast": None},
-                loss_weights={"logits": 10.0, "contrast": 1.0},
+                loss_weights={"logits": 10.0, "contrast": 0.01},
             )
         if FLAGS.train_mode == "combined":
             self.combined.compile(
