@@ -1,6 +1,9 @@
 import os
 import re
 import sys
+from typing import List
+
+from tensorflow.python.keras.callbacks import Callback, ModelCheckpoint
 
 sys.path.append("./")
 import numpy as np
@@ -11,6 +14,7 @@ import tensorflow.keras.models as KM
 from absl import flags
 from keras_drop_block import DropBlock2D
 
+from cifar.utils.callbacks import EvalCallback
 from cifar.utils.generator import DataGenerator
 from cifar.utils.losses import MultiLayerAccuracy, contrastive_loss, multi_layer_focal
 
@@ -90,6 +94,9 @@ class Cifar:
                 self.set_epoch(model_path)
             else:
                 self.classifier = self.build_classify(num_classes=10)
+                # Initialize the epoch counter for model training
+                self.epoch = 0
+
         if FLAGS.train_mode == "combined":
 
             if model_path:
@@ -363,7 +370,7 @@ class Cifar:
                     "contrast": c_loss,
                 },
                 metrics={"logits": accuracy, "contrast": None},
-                loss_weights={"logits": 10.0, "contrast": 1.0},
+                loss_weights={"logits": 10.0, "contrast": 0.0},
             )
         if FLAGS.train_mode == "combined":
             self.combined.compile(
@@ -378,8 +385,40 @@ class Cifar:
                     "contrast": c_loss,
                 },
                 metrics={"decoder": None, "logits": accuracy, "contrast": None},
-                loss_weights={"decoder": 1.0, "logits": 10.0, "contrast": 1.0},
+                loss_weights={"decoder": 1.0, "logits": 10.0, "contrast": 0.0},
             )
+
+    def callbacks(self, val_generator: DataGenerator) -> List[Callback]:
+        """method to define all the required callbacks
+
+        Args:
+            val_generator (DataGenerator): validation dataset generator function
+
+        Returns:
+            List[Callback]: list of all the callbacks
+        """
+        if FLAGS.train_mode == "classifier":
+            model = self.classifier
+            model_dir = "class_model"
+        elif FLAGS.train_mode == "combined":
+            model = self.combined
+            model_dir = "com_model"
+
+        # Callback for evaluating the validation dataset
+        eval_callback = EvalCallback(model=model, val_generator=val_generator)
+
+        # callback for saving the best model
+        checkpoint_callback = ModelCheckpoint(
+            f"{model_dir}/{model_dir}" + "_{epoch:04d}_{val_acc:.4f}.h5",
+            monitor="val_acc",
+            verbose=0,
+            save_best_only=True,
+            save_weights_only=False,
+            mode="max",
+        )
+
+        "Make sure checkpoint callback is after the eval_callback, dependency"
+        return [eval_callback, checkpoint_callback]
 
     def train(self, epochs: int = 10, classifier_loss: str = "focal"):
         """method to initiate model training
@@ -393,6 +432,13 @@ class Cifar:
         if not self.model_path:
             self.compile(classifier_loss=classifier_loss)
 
+        # Common validation dataset format across all training regimes
+        val_generator = DataGenerator(
+            batch_size=FLAGS.val_batch_size,
+            split="val",
+            cache=FLAGS.cache,
+            train_mode="classifier",
+        )
         if FLAGS.train_mode in ["both", "pretrain"]:
             # prepare the generator
             train_generator = DataGenerator(
@@ -431,13 +477,6 @@ class Cifar:
                 shuffle=True,
                 train_mode="classifier",
             )
-            val_generator_classifier = DataGenerator(
-                batch_size=FLAGS.val_batch_size,
-                split="val",
-                contrastive=True,
-                cache=FLAGS.cache,
-                train_mode="classifier",
-            )
 
             # number of trainig steps per epoch
             train_steps = len(train_generator_classifier)
@@ -448,22 +487,12 @@ class Cifar:
 
             self.classifier.fit(
                 train_generator_classifier(),
-                initial_epoch=0,
+                initial_epoch=self.epoch,
                 epochs=epochs,
                 workers=8,
                 verbose=2,
                 steps_per_epoch=train_steps,
-                validation_data=val_generator_classifier(),
-                callbacks=[
-                    tf.keras.callbacks.ModelCheckpoint(
-                        "class_model/class_model_{epoch:04d}_{val_logits_acc:.4f}.h5",
-                        monitor="val_logits_acc",
-                        verbose=0,
-                        save_best_only=True,
-                        save_weights_only=False,
-                        mode="max",
-                    )
-                ],
+                callbacks=self.callbacks(val_generator),
             )
 
         if FLAGS.train_mode == "combined":
@@ -480,13 +509,6 @@ class Cifar:
                 cache=FLAGS.cache,
                 train_mode="combined",
             )
-            val_generator = DataGenerator(
-                batch_size=FLAGS.val_batch_size,
-                split="val",
-                contrastive=True,
-                cache=FLAGS.cache,
-                train_mode="combined",
-            )
 
             # number of trainig steps per epoch
             train_steps = len(train_generator)
@@ -498,17 +520,7 @@ class Cifar:
                 workers=8,
                 verbose=2,
                 steps_per_epoch=train_steps,
-                validation_data=val_generator(),
-                callbacks=[
-                    tf.keras.callbacks.ModelCheckpoint(
-                        "com_model/com_model_{epoch:04d}_{val_logits_acc:.4f}.h5",
-                        monitor="val_logits_acc",
-                        verbose=0,
-                        save_best_only=True,
-                        save_weights_only=False,
-                        mode="max",
-                    )
-                ],
+                callbacks=self.callbacks(val_generator),
             )
 
     def eval(self):
@@ -524,7 +536,10 @@ class Cifar:
                 outputs=self.combined.get_layer("logits").output,
             )
         elif FLAGS.train_mode == "classifier":
-            model = self.classifier
+            model = KM.Model(
+                inputs=self.classifier.input,
+                outputs=self.classifier.get_layer("logits").output,
+            )
 
         # initialize the array to store preds for each label
         accuracy = np.zeros((10, 10), dtype=int)
