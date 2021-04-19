@@ -71,6 +71,7 @@ def conv_block(
         3,
         strides=(2, 2),
         padding="same",
+        use_bias=False,
         name=name + f"_c{1}",
     )(input_tensor)
     out = KL.BatchNormalization()(out)
@@ -83,9 +84,7 @@ def conv_block(
         skip_tensors_next.append(feature_tensor)
     skip_connection = tf.concat(skip_tensors_next, axis=-1)
 
-    out = out + KL.BatchNormalization()(skip_connection)
-
-    out = KL.Activation("relu", name=name + "_relu")(out)
+    out = KL.Activation("relu", name=name + "_relu")(out + skip_connection)
     skip_tensors_next.append(out)
     return out, skip_tensors_next
 
@@ -171,6 +170,7 @@ class Cifar:
             3,
             strides=(2, 2),
             padding="same",
+            use_bias=False,
             name=name + f"_conv_{1}",
         )(input_tensor)
         encoded = KL.Activation("relu")(KL.BatchNormalization()(encoded))
@@ -178,7 +178,13 @@ class Cifar:
 
         skip_tensors = [
             KL.AveragePooling2D(pool_size=(2, 2), strides=2)(
-                KL.Conv2D(features[0], 1, strides=1)(input_tensor)
+                KL.Activation("relu")(
+                    KL.BatchNormalization()(
+                        KL.Conv2D(features[0], 1, strides=1, use_bias=False)(
+                            input_tensor
+                        )
+                    )
+                )
             ),
             encoded,
         ]
@@ -404,7 +410,7 @@ class Cifar:
                     "contrast": c_loss,
                 },
                 metrics={"logits": accuracy, "contrast": None},
-                loss_weights={"logits": 10.0, "contrast": 0.01},
+                loss_weights={"logits": 10.0, "contrast": 0.0},
             )
         if FLAGS.train_mode == "combined":
             self.combined.compile(
@@ -419,7 +425,7 @@ class Cifar:
                     "contrast": c_loss,
                 },
                 metrics={"decoder": None, "logits": accuracy, "contrast": None},
-                loss_weights={"decoder": 1.0, "logits": 10.0, "contrast": 1.0},
+                loss_weights={"decoder": 1.0, "logits": 10.0, "contrast": 0.0},
             )
 
     def callbacks(self, val_generator: DataGenerator) -> List[Callback]:
