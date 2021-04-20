@@ -114,6 +114,7 @@ def conv_block(
         name=name + f"_c{3}",
     )(out)
     out = KL.Activation("relu")(KL.BatchNormalization()(out))
+    out = KL.SpatialDropout2D(rate=0.2)(out)
 
     skip_tensors_next = []
     for i, feature_tensor in enumerate(skip_tensors, start=1):
@@ -259,17 +260,19 @@ class Cifar:
         encoded = KL.Activation("relu")(KL.BatchNormalization()(encoded))
         encoded_list = [encoded]
 
+        # Prepare the skip tensor from input
+        skip_input_tensor = KL.Activation("relu")(
+            KL.BatchNormalization()(
+                KL.Conv2D(features[0], 1, strides=1, use_bias=False)(input_tensor)
+            )
+        )
+        skip_input_tensor = KL.SpatialDropout2D(rate=0.2)(skip_input_tensor)
+        skip_input_tensor = KL.AveragePooling2D(pool_size=(2, 2), strides=2)(
+            skip_input_tensor
+        )
         skip_tensors = [
             # Routing info from input tensor to next levels
-            KL.AveragePooling2D(pool_size=(2, 2), strides=2)(
-                KL.Activation("relu")(
-                    KL.BatchNormalization()(
-                        KL.Conv2D(features[0], 1, strides=1, use_bias=False)(
-                            input_tensor
-                        )
-                    )
-                )
-            ),
+            skip_input_tensor,
             # Routes info from second level to next levels
             encoded,
         ]
