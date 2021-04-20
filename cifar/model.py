@@ -643,12 +643,16 @@ class Cifar:
         for input, true_logits in val_generator():
             pred_logits = model.predict(input)
 
-            true_logits = tf.split(true_logits, num_or_size_splits=4, axis=-1)
+            true_logits = tf.split(
+                true_logits, num_or_size_splits=self.n_blocks, axis=-1
+            )
             true_logits = true_logits[0]
 
             # Split the logits from different levels
             pred_logits = tf.split(
-                tf.expand_dims(pred_logits, axis=-1), num_or_size_splits=4, axis=1
+                tf.expand_dims(pred_logits, axis=-1),
+                num_or_size_splits=self.n_blocks,
+                axis=1,
             )
             # Predicted label by taking an elementwise maximum across all layers
             pred_logits = tf.reduce_max(tf.concat(pred_logits, axis=2), axis=2)
