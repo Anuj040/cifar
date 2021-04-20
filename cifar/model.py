@@ -131,7 +131,7 @@ def conv_block(
 def classifier_block(
     encoded_features: List[tf.Tensor], num_classes: int = 10
 ) -> List[tf.Tensor]:
-    """[summary]
+    """shared classifier block across different training methods
 
     Args:
         encoded_features (List[tf.Tensor]): list of latent feature tensors from different levels
