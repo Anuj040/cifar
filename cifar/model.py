@@ -297,17 +297,9 @@ class Cifar:
         Returns:
             KM.Model: Decoder model
         """
-        input_tensor = KL.Input(shape=(1, 1, features[0]))
+        input_tensor = KL.Input(shape=(2, 2, features[0]))
 
-        # mismatch between input and output image shape
-        padding = tf.constant([[0, 0], [1, 0], [1, 0], [0, 0]])
-        padded = tf.pad(
-            input_tensor,
-            padding,
-            "REFLECT" if len(features) < 4 else "SYMMETRIC",
-        )
-
-        decoded = padded
+        decoded = input_tensor
 
         for i, feature_num in enumerate(features[1:], start=1):
             decoded = deconv_block(
@@ -476,7 +468,7 @@ class Cifar:
                     "contrast": c_loss,
                 },
                 metrics={"decoder": None, "logits": accuracy, "contrast": None},
-                loss_weights={"decoder": 1.0, "logits": 10.0, "contrast": 0.0},
+                loss_weights={"decoder": 0.1, "logits": 10.0, "contrast": 0.0},
             )
 
     def callbacks(self, val_generator: DataGenerator) -> List[Callback]:
