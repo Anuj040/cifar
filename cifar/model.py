@@ -495,7 +495,9 @@ class Cifar:
             model_dir = "com_model"
 
         # Callback for evaluating the validation dataset
-        eval_callback = EvalCallback(model=model, val_generator=val_generator)
+        eval_callback = EvalCallback(
+            model=model, val_generator=val_generator, layers=self.n_blocks
+        )
 
         # callback for saving the best model
         checkpoint_callback = ModelCheckpoint(
