@@ -93,7 +93,7 @@ def conv_block(
         use_bias=False,
         name=name + f"_c{1}",
     )(input_tensor)
-    out = KL.BatchNormalization()(out)
+    out = KL.Activation("relu")(KL.BatchNormalization()(out))
 
     out = KL.Conv2D(
         features_in,
@@ -103,7 +103,7 @@ def conv_block(
         use_bias=False,
         name=name + f"_c{2}",
     )(out)
-    out = KL.BatchNormalization()(out)
+    out = KL.Activation("relu")(KL.BatchNormalization()(out))
 
     out = KL.Conv2D(
         features_out,
@@ -113,7 +113,7 @@ def conv_block(
         use_bias=False,
         name=name + f"_c{3}",
     )(out)
-    out = KL.BatchNormalization()(out)
+    out = KL.Activation("relu")(KL.BatchNormalization()(out))
 
     skip_tensors_next = []
     for i, feature_tensor in enumerate(skip_tensors, start=1):
@@ -178,8 +178,7 @@ class Cifar:
         if FLAGS.train_mode in ["both", "classifier"]:
             if model_path:
                 # Load the model from saved ".h5" file
-                print(f"\nloading model ...\n")
-                print(model_path)
+                print(f"\nloading model ...\n{model_path}\n")
                 self.classifier = KM.load_model(
                     filepath=model_path,
                     custom_objects={
@@ -206,8 +205,7 @@ class Cifar:
 
             if model_path:
                 # Load the model from saved ".h5" file
-                print(f"\nloading model ...\n")
-                print(model_path)
+                print(f"\nloading model ...\n{model_path}\n")
                 self.combined = KM.load_model(
                     filepath=model_path,
                     custom_objects={
