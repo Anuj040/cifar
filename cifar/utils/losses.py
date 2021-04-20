@@ -49,13 +49,16 @@ def categorical_focal_loss(alpha: float = 0.25, gamma: float = 2.0):
     return _loss
 
 
-def multi_layer_focal(weight: float = 1.0, alpha: float = 0.25, gamma: float = 2.0):
+def multi_layer_focal(
+    weight: float = 1.0, alpha: float = 0.25, gamma: float = 2.0, layers: int = 1
+):
     """custom layer to calculate focal loss on logits taken from multiple latent vectors
 
     Args:
         weight (float, optional): weighing factor. Defaults to 1.0.
         alpha (float, optional): [description]. Defaults to 0.25.
         gamma (float, optional): focusing parameter for modulating factor (1-p) for focal loss. Defaults to 2.0.
+        layers (int, optional): number of layers to take classification tensor from. Defaults to 1.
 
     Returns:
         function: loss calculating function
@@ -65,9 +68,9 @@ def multi_layer_focal(weight: float = 1.0, alpha: float = 0.25, gamma: float = 2
 
     def _loss(y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
 
-        y_true = tf.split(y_true, num_or_size_splits=4, axis=-1)
+        y_true = tf.split(y_true, num_or_size_splits=layers, axis=-1)
         # Split the logits from different levels
-        y_pred = tf.split(y_pred, num_or_size_splits=4, axis=-1)
+        y_pred = tf.split(y_pred, num_or_size_splits=layers, axis=-1)
         loss = 0.0
 
         for i in range(len(y_true)):
@@ -81,13 +84,15 @@ def multi_layer_focal(weight: float = 1.0, alpha: float = 0.25, gamma: float = 2
 
 
 class MultiLayerAccuracy(tf.keras.metrics.Metric):
-    def __init__(self, name: str = "acc", **kwargs):
+    def __init__(self, name: str = "acc", layers: int = 1, **kwargs):
         """custom keras metric layer to calculate accuracy with predicted labels from multiple latent vectors
 
         Args:
             name (str, optional): Layer name. Defaults to "acc".
+            layers (int, optional): number of layers to take classification tensor from. Defaults to 1.
         """
         super(MultiLayerAccuracy, self).__init__(name=name, **kwargs)
+        self.layers = layers
 
         # Stores the summation of metric value over the whole dataset
         self.metric = self.add_weight(name="true_count", initializer="zeros")
@@ -97,9 +102,11 @@ class MultiLayerAccuracy(tf.keras.metrics.Metric):
 
     def update_state(self, y_true, y_pred, sample_weight=None):
 
-        y_true = tf.split(y_true, num_or_size_splits=4, axis=-1)
+        y_true = tf.split(y_true, num_or_size_splits=self.layers, axis=-1)
         # Split the logits from different levels
-        y_pred = tf.split(tf.expand_dims(y_pred, axis=-1), num_or_size_splits=4, axis=1)
+        y_pred = tf.split(
+            tf.expand_dims(y_pred, axis=-1), num_or_size_splits=self.layers, axis=1
+        )
         true_logits = y_true[0]
         # Predicted label by taking an elementwise maximum across all layers
         pred_logits = tf.reduce_max(tf.concat(y_pred, axis=2), axis=2)

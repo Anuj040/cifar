@@ -1,7 +1,7 @@
 import os
 import re
 import sys
-from typing import List
+from typing import List, Tuple
 
 from tensorflow.python.keras.callbacks import Callback, ModelCheckpoint
 
@@ -23,7 +23,7 @@ FLAGS = flags.FLAGS
 
 def deconv_block(input_tensor: tf.Tensor, features: int, name: str) -> tf.Tensor:
     """Bottleneck style deconvolutional block. Applies convolution to decrease to fewer features.
-    upscales in lower feature space. Convols to specified feature numbers
+    upscales in lower feature space. Convolves to specified feature numbers
 
     Args:
         input_tensor (tf.Tensor): tensor to apply deconvolution to
@@ -63,6 +63,104 @@ def deconv_block(input_tensor: tf.Tensor, features: int, name: str) -> tf.Tensor
     return out
 
 
+def conv_block(
+    input_tensor: tf.Tensor,
+    skip_tensors: List[tf.Tensor],
+    features_in: int,
+    features_out: int,
+    name: str,
+) -> Tuple[tf.Tensor, List[tf.Tensor]]:
+    """Bottleneck style convolutional block with skip connections across blocks. Applies downsample convolution in lower features space.
+    Followed by single kernel convolution to higher feature space. Also, applies skip connections across blocks for routing information
+    across levels.
+
+    Args:
+        input_tensor (tf.Tensor): tensor to apply convolution to
+        skip_tensors (List[tf.Tensor]): list of output tensors from previous blocks
+        features_in (int): number of features for incoming layer
+        features_out (int): number of features for outgoing layer
+        name (str): name for the tensors
+
+    Returns:
+        Tuple[tf.Tensor, List[tf.Tensor]]: output tensor, list of tensors to route info to next levels
+    """
+
+    out = KL.Conv2D(
+        features_in,
+        1,
+        strides=(1, 1),
+        padding="same",
+        use_bias=False,
+        name=name + f"_c{1}",
+    )(input_tensor)
+    out = KL.BatchNormalization()(out)
+
+    out = KL.Conv2D(
+        features_in,
+        3,
+        strides=(2, 2),
+        padding="same",
+        use_bias=False,
+        name=name + f"_c{2}",
+    )(out)
+    out = KL.BatchNormalization()(out)
+
+    out = KL.Conv2D(
+        features_out,
+        1,
+        strides=(1, 1),
+        padding="same",
+        use_bias=False,
+        name=name + f"_c{3}",
+    )(out)
+    out = KL.BatchNormalization()(out)
+
+    skip_tensors_next = []
+    for i, feature_tensor in enumerate(skip_tensors, start=1):
+        feature_tensor = KL.AveragePooling2D(pool_size=(2, 2), strides=2)(
+            feature_tensor
+        )
+        skip_tensors_next.append(feature_tensor)
+    skip_connection = tf.concat(skip_tensors_next, axis=-1)
+
+    out = KL.Activation("relu", name=name + "_relu")(out + skip_connection)
+    skip_tensors_next.append(out)
+    return out, skip_tensors_next
+
+
+def classifier_block(
+    encoded_features: List[tf.Tensor], num_classes: int = 10
+) -> List[tf.Tensor]:
+    """[summary]
+
+    Args:
+        encoded_features (List[tf.Tensor]): list of latent feature tensors from different levels
+        num_classes (int, optional): total classes. Defaults to 10.
+
+    Returns:
+        List[tf.Tensor]: class logits from different levels
+    """
+
+    # logits from the final layer of features of auto-encoder
+    encoded_flat = KL.Flatten()(encoded_features[-1])
+    encoded_flat = KL.Dropout(rate=0.2)(encoded_flat)
+    probs = KL.Dense(num_classes, activation="sigmoid", name="logits_n")(encoded_flat)
+
+    # logits from the all but last layer of features of auto-encoder
+    pooled_probs = [
+        KL.Dense(num_classes, activation="sigmoid", name=f"logits_{i}")(
+            KL.Dropout(rate=0.2)(KL.Flatten()(KL.GlobalAveragePooling2D()(features)))
+        )
+        for i, features in enumerate(encoded_features[:-1], start=1)
+    ]
+
+    # concatenated logits from all the layers
+    probs = KL.Lambda(lambda x: tf.concat(x, axis=-1), name="logits")(
+        [probs] + pooled_probs
+    )
+    return probs
+
+
 class Cifar:
     def __init__(self, model_path: str) -> None:
         """
@@ -87,13 +185,20 @@ class Cifar:
                     custom_objects={
                         "mlti": multi_layer_focal(),
                         "MultiLayerAccuracy": MultiLayerAccuracy(),
+                        "con": contrastive_loss(),
                     },
                     compile=True,
                 )
+                # Number of encoder feature levels
+                self.n_blocks = len(self.classifier.get_layer("encoder").output)
+
                 # set epoch number
                 self.set_epoch(model_path)
             else:
                 self.classifier = self.build_classify(num_classes=10)
+                # Number of encoder feature levels
+                self.n_blocks = len(self.encoder_features)
+
                 # Initialize the epoch counter for model training
                 self.epoch = 0
 
@@ -109,13 +214,19 @@ class Cifar:
                         "DropBlock2D": DropBlock2D,
                         "mlti": multi_layer_focal(),
                         "MultiLayerAccuracy": MultiLayerAccuracy(),
+                        "con": contrastive_loss(),
                     },
                     compile=True,
                 )
+                # Number of encoder feature levels
+                self.n_blocks = len(self.combined.get_layer("encoder").output)
+
                 # set epoch number
                 self.set_epoch(model_path)
             else:
                 self.combined = self.build_combined(num_classes=10)
+                # Number of encoder feature levels
+                self.n_blocks = len(self.encoder_features)
 
                 # Initialize the epoch counter for model training
                 self.epoch = 0
@@ -143,18 +254,35 @@ class Cifar:
             features[0],
             3,
             strides=(2, 2),
+            padding="same",
+            use_bias=False,
             name=name + f"_conv_{1}",
         )(input_tensor)
         encoded = KL.Activation("relu")(KL.BatchNormalization()(encoded))
         encoded_list = [encoded]
+
+        skip_tensors = [
+            # Routing info from input tensor to next levels
+            KL.AveragePooling2D(pool_size=(2, 2), strides=2)(
+                KL.Activation("relu")(
+                    KL.BatchNormalization()(
+                        KL.Conv2D(features[0], 1, strides=1, use_bias=False)(
+                            input_tensor
+                        )
+                    )
+                )
+            ),
+            # Routes info from second level to next levels
+            encoded,
+        ]
         for i, feature_num in enumerate(features[1:], start=2):
-            encoded = KL.Conv2D(
-                feature_num,
-                3,
-                strides=(2, 2),
+            encoded, skip_tensors = conv_block(
+                encoded,
+                skip_tensors,
+                features_in=features[i - 2],
+                features_out=feature_num,
                 name=name + f"_conv_{i}",
-            )(encoded)
-            encoded = KL.Activation("relu")(KL.BatchNormalization()(encoded))
+            )
             encoded_list.append(encoded)
         return KM.Model(inputs=input_tensor, outputs=encoded_list, name=name)
 
@@ -250,27 +378,9 @@ class Cifar:
         contrastive_features = KL.Lambda(lambda x: K.mean(x, [1, 2]), name="contrast")(
             encoded_features[-1]
         )
-        # logits from the final layer of features of auto-encoder
-        encoded_flat = KL.Flatten()(encoded_features[-1])
-        encoded_flat = KL.Dropout(rate=0.2)(encoded_flat)
-        probs = KL.Dense(num_classes, activation="sigmoid", name="logits_n")(
-            encoded_flat
-        )
+        # Calculate class probs from multiple latent representations
+        probs = classifier_block(encoded_features, num_classes=num_classes)
 
-        # logits from the all but last layer of features of auto-encoder
-        pooled_probs = [
-            KL.Dense(num_classes, activation="sigmoid", name=f"logits_{i}")(
-                KL.Dropout(rate=0.2)(
-                    KL.Flatten()(KL.GlobalAveragePooling2D()(features))
-                )
-            )
-            for i, features in enumerate(encoded_features[:-1], start=1)
-        ]
-
-        # concatenated logits from all the layers
-        probs = KL.Lambda(lambda x: tf.concat(x, axis=-1), name="logits")(
-            [probs] + pooled_probs
-        )
         return KM.Model(
             inputs=input_tensor,
             outputs=[probs, contrastive_features],
@@ -306,28 +416,8 @@ class Cifar:
         contrastive_features = KL.Lambda(lambda x: K.mean(x, [1, 2]), name="contrast")(
             encoded_features[-1]
         )
-
-        # logits from the final layer of features of auto-encoder
-        encoded_flat = KL.Flatten()(encoded_features[-1])
-        encoded_flat = KL.Dropout(rate=0.2)(encoded_flat)
-        probs = KL.Dense(num_classes, activation="sigmoid", name="logits_n")(
-            encoded_flat
-        )
-
-        # logits from the all but last layer of features of auto-encoder
-        pooled_probs = [
-            KL.Dense(num_classes, activation="sigmoid", name=f"logits_{i}")(
-                KL.Dropout(rate=0.2)(
-                    KL.Flatten()(KL.GlobalAveragePooling2D()(features))
-                )
-            )
-            for i, features in enumerate(encoded_features[:-1], start=1)
-        ]
-
-        # concatenated logits from all the layers
-        probs = KL.Lambda(lambda x: tf.concat(x, axis=-1), name="logits")(
-            [probs] + pooled_probs
-        )
+        # Calculate class probs from multiple latent representations
+        probs = classifier_block(encoded_features, num_classes=num_classes)
 
         return KM.Model(
             inputs=input_tensor,
@@ -356,8 +446,8 @@ class Cifar:
         cce = tf.keras.losses.CategoricalCrossentropy(
             from_logits=True, label_smoothing=0.1
         )
-        focal = multi_layer_focal(gamma=FLAGS.gamma)
-        accuracy = MultiLayerAccuracy()
+        focal = multi_layer_focal(gamma=FLAGS.gamma, layers=self.n_blocks)
+        accuracy = MultiLayerAccuracy(layers=self.n_blocks)
         if FLAGS.train_mode in ["both", "classifier"]:
             self.classifier.compile(
                 optimizer=tf.keras.optimizers.Adam(
@@ -436,6 +526,7 @@ class Cifar:
         val_generator = DataGenerator(
             batch_size=FLAGS.val_batch_size,
             split="val",
+            layers=self.n_blocks,
             cache=FLAGS.cache,
             train_mode="classifier",
         )
@@ -471,6 +562,7 @@ class Cifar:
             train_generator_classifier = DataGenerator(
                 batch_size=FLAGS.train_batch_size,
                 split="train",
+                layers=self.n_blocks,
                 augment=True,
                 contrastive=True,
                 cache=FLAGS.cache,
@@ -503,6 +595,7 @@ class Cifar:
             train_generator = DataGenerator(
                 batch_size=FLAGS.train_batch_size,
                 split="train",
+                layers=self.n_blocks,
                 augment=True,
                 contrastive=True,
                 shuffle=True,
@@ -527,6 +620,7 @@ class Cifar:
         val_generator = DataGenerator(
             batch_size=FLAGS.val_batch_size,
             split="val",
+            layers=self.n_blocks,
             cache=FLAGS.cache,
             train_mode="classifier",
         )

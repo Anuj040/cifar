@@ -1,11 +1,11 @@
 import sys
 
 from cifar.utils.generator import DataGenerator
+from cifar.utils.losses import MultiLayerAccuracy
 
 sys.path.append("./")
 import tensorflow as tf
 import tensorflow.keras.models as KM
-from cifar.utils.losses import MultiLayerAccuracy
 from tensorflow.keras.callbacks import Callback
 
 
