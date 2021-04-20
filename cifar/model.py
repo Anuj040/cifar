@@ -116,17 +116,11 @@ def conv_block(
     out = KL.Activation("relu")(KL.BatchNormalization()(out))
     out = KL.SpatialDropout2D(rate=0.2)(out)
 
-    skip_tensors_next = []
-    for i, feature_tensor in enumerate(skip_tensors, start=1):
-        feature_tensor = KL.AveragePooling2D(pool_size=(2, 2), strides=2)(
-            feature_tensor
-        )
-        skip_tensors_next.append(feature_tensor)
-    skip_connection = tf.concat(skip_tensors_next, axis=-1)
-
+    # Calculate skip tensor from previous levels
+    skip_connection = KL.AveragePooling2D(pool_size=(2, 2), strides=2)(skip_tensors)
     out = KL.Activation("relu", name=name + "_relu")(out + skip_connection)
-    skip_tensors_next.append(out)
-    return out, skip_tensors_next
+    skip_tensors = tf.concat([skip_connection, out], axis=-1)
+    return out, skip_tensors
 
 
 def classifier_block(
@@ -270,12 +264,13 @@ class Cifar:
         skip_input_tensor = KL.AveragePooling2D(pool_size=(2, 2), strides=2)(
             skip_input_tensor
         )
-        skip_tensors = [
-            # Routing info from input tensor to next levels
-            skip_input_tensor,
-            # Routes info from second level to next levels
-            encoded,
-        ]
+        skip_tensors = tf.concat(
+            [
+                skip_input_tensor,  # Routing info from input tensor to next levels
+                encoded,  # Routes info from second level to next levels
+            ],
+            axis=-1,
+        )
         for i, feature_num in enumerate(features[1:], start=2):
             encoded, skip_tensors = conv_block(
                 encoded,
