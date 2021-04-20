@@ -352,7 +352,9 @@ class DataGenerator:
         if cache:
             ds = ds.cache()
         if shuffle:
-            ds = ds.shuffle(batch_size * buffer_multiplier)
+            ds = ds.shuffle(
+                batch_size * buffer_multiplier, reshuffle_each_iteration=True
+            )
         # Per image mapping
         ds = ds.map(self.map_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
         ds = ds.batch(batch_size, drop_remainder=split == "train")
