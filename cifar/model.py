@@ -93,7 +93,7 @@ def conv_block(
         use_bias=False,
         name=name + f"_c{1}",
     )(input_tensor)
-    out = KL.BatchNormalization()(out)
+    out = KL.Activation("relu")(KL.BatchNormalization()(out))
 
     out = KL.Conv2D(
         features_in,
@@ -103,7 +103,7 @@ def conv_block(
         use_bias=False,
         name=name + f"_c{2}",
     )(out)
-    out = KL.BatchNormalization()(out)
+    out = KL.Activation("relu")(KL.BatchNormalization()(out))
 
     out = KL.Conv2D(
         features_out,
@@ -113,25 +113,22 @@ def conv_block(
         use_bias=False,
         name=name + f"_c{3}",
     )(out)
-    out = KL.BatchNormalization()(out)
+    out = KL.Activation("relu")(KL.BatchNormalization()(out))
+    out = KL.SpatialDropout2D(rate=0.2)(out)
 
-    skip_tensors_next = []
-    for i, feature_tensor in enumerate(skip_tensors, start=1):
-        feature_tensor = KL.AveragePooling2D(pool_size=(2, 2), strides=2)(
-            feature_tensor
-        )
-        skip_tensors_next.append(feature_tensor)
-    skip_connection = tf.concat(skip_tensors_next, axis=-1)
-
+    # Calculate skip tensor from previous levels
+    skip_connection = KL.AveragePooling2D(pool_size=(2, 2), strides=2)(skip_tensors)
     out = KL.Activation("relu", name=name + "_relu")(out + skip_connection)
-    skip_tensors_next.append(out)
-    return out, skip_tensors_next
+
+    # skip tensor for next level
+    skip_tensors = tf.concat([skip_connection, out], axis=-1)
+    return out, skip_tensors
 
 
 def classifier_block(
     encoded_features: List[tf.Tensor], num_classes: int = 10
 ) -> List[tf.Tensor]:
-    """[summary]
+    """shared classifier block across different training methods
 
     Args:
         encoded_features (List[tf.Tensor]): list of latent feature tensors from different levels
@@ -178,8 +175,7 @@ class Cifar:
         if FLAGS.train_mode in ["both", "classifier"]:
             if model_path:
                 # Load the model from saved ".h5" file
-                print(f"\nloading model ...\n")
-                print(model_path)
+                print(f"\nloading model ...\n{model_path}\n")
                 self.classifier = KM.load_model(
                     filepath=model_path,
                     custom_objects={
@@ -206,8 +202,7 @@ class Cifar:
 
             if model_path:
                 # Load the model from saved ".h5" file
-                print(f"\nloading model ...\n")
-                print(model_path)
+                print(f"\nloading model ...\n{model_path}\n")
                 self.combined = KM.load_model(
                     filepath=model_path,
                     custom_objects={
@@ -261,20 +256,23 @@ class Cifar:
         encoded = KL.Activation("relu")(KL.BatchNormalization()(encoded))
         encoded_list = [encoded]
 
-        skip_tensors = [
-            # Routing info from input tensor to next levels
-            KL.AveragePooling2D(pool_size=(2, 2), strides=2)(
-                KL.Activation("relu")(
-                    KL.BatchNormalization()(
-                        KL.Conv2D(features[0], 1, strides=1, use_bias=False)(
-                            input_tensor
-                        )
-                    )
-                )
-            ),
-            # Routes info from second level to next levels
-            encoded,
-        ]
+        # Prepare the skip tensor from input
+        skip_input_tensor = KL.Activation("relu")(
+            KL.BatchNormalization()(
+                KL.Conv2D(features[0], 1, strides=1, use_bias=False)(input_tensor)
+            )
+        )
+        skip_input_tensor = KL.SpatialDropout2D(rate=0.2)(skip_input_tensor)
+        skip_input_tensor = KL.AveragePooling2D(pool_size=(2, 2), strides=2)(
+            skip_input_tensor
+        )
+        skip_tensors = tf.concat(
+            [
+                skip_input_tensor,  # Routing info from input tensor to next levels
+                encoded,  # Routes info from second level to next levels
+            ],
+            axis=-1,
+        )
         for i, feature_num in enumerate(features[1:], start=2):
             encoded, skip_tensors = conv_block(
                 encoded,
@@ -296,17 +294,9 @@ class Cifar:
         Returns:
             KM.Model: Decoder model
         """
-        input_tensor = KL.Input(shape=(1, 1, features[0]))
+        input_tensor = KL.Input(shape=(2, 2, features[0]))
 
-        # mismatch between input and output image shape
-        padding = tf.constant([[0, 0], [1, 0], [1, 0], [0, 0]])
-        padded = tf.pad(
-            input_tensor,
-            padding,
-            "REFLECT" if len(features) < 4 else "SYMMETRIC",
-        )
-
-        decoded = padded
+        decoded = input_tensor
 
         for i, feature_num in enumerate(features[1:], start=1):
             decoded = deconv_block(
@@ -475,7 +465,7 @@ class Cifar:
                     "contrast": c_loss,
                 },
                 metrics={"decoder": None, "logits": accuracy, "contrast": None},
-                loss_weights={"decoder": 1.0, "logits": 10.0, "contrast": 0.0},
+                loss_weights={"decoder": 0.1, "logits": 10.0, "contrast": 0.0},
             )
 
     def callbacks(self, val_generator: DataGenerator) -> List[Callback]:
@@ -495,7 +485,9 @@ class Cifar:
             model_dir = "com_model"
 
         # Callback for evaluating the validation dataset
-        eval_callback = EvalCallback(model=model, val_generator=val_generator)
+        eval_callback = EvalCallback(
+            model=model, val_generator=val_generator, layers=self.n_blocks
+        )
 
         # callback for saving the best model
         checkpoint_callback = ModelCheckpoint(
@@ -641,12 +633,16 @@ class Cifar:
         for input, true_logits in val_generator():
             pred_logits = model.predict(input)
 
-            true_logits = tf.split(true_logits, num_or_size_splits=4, axis=-1)
+            true_logits = tf.split(
+                true_logits, num_or_size_splits=self.n_blocks, axis=-1
+            )
             true_logits = true_logits[0]
 
             # Split the logits from different levels
             pred_logits = tf.split(
-                tf.expand_dims(pred_logits, axis=-1), num_or_size_splits=4, axis=1
+                tf.expand_dims(pred_logits, axis=-1),
+                num_or_size_splits=self.n_blocks,
+                axis=1,
             )
             # Predicted label by taking an elementwise maximum across all layers
             pred_logits = tf.reduce_max(tf.concat(pred_logits, axis=2), axis=2)
