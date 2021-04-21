@@ -5,6 +5,7 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.keras.backend as K
 import tensorflow_datasets as tfds
+from tensorflow.keras.layers.experimental.preprocessing import RandomRotation
 
 
 def allowed_id_list(
@@ -255,6 +256,13 @@ class DataGenerator:
         # Get the number of disctinct labels
         self.num_classes = len(labels)
 
+        # Augmentators
+        # Define the rotation augmentator
+        self.rotate_augmentation = tf.keras.Sequential(
+            [
+                RandomRotation(0.1),
+            ]
+        )
         if split in ["train", "val"]:
             # Labels with fewer training samples (imbalanced labels)
             screened_labels = ["bird", "deer", "truck"]
@@ -395,16 +403,7 @@ class DataGenerator:
     def batch_map_fn(
         self, input_1: tf.Tensor, input_2: tf.Tensor
     ) -> Tuple[tf.Tensor, tf.Tensor]:
-        """method to apply transformations between elements of a given batch.
-        Takes a batch and mixes it with its own elements in reverse order.
 
-        Args:
-            input_1 (tf.Tensor): "classifier" & "pretrain": input_image
-            input_2 (tf.Tensor): "classifier": one-hot labels, "pretrain": output_image
-
-        Returns:
-            Tuple[tf.Tensor, tf.Tensor]: input/output tensor pair
-        """
         if self.contrast and self.split == "train":
             # Take the two augmented versions of a single batch concatenated along the channels dimension
             # concatenate them along the batch dimension to make input image batch double the specified batch_size
@@ -413,22 +412,55 @@ class DataGenerator:
             )
             input_2 = tf.tile(input_2, [2, 1])
 
-        def _augmenter(input_1, input_2):
-            # Random mixing proportions for different elements
-            if self.contrast:
-                mixup_proportions = tf.random.uniform(
-                    shape=[2 * self.batch_size, 1, 1, 1], minval=0.0, maxval=1.0
-                )
-            else:
-                mixup_proportions = tf.random.uniform(
-                    shape=[self.batch_size, 1, 1, 1], minval=0.0, maxval=1.0
-                )
+        def _augmenter(
+            input_1: tf.Tensor, input_2: tf.Tensor
+        ) -> Tuple[tf.Tensor, tf.Tensor]:
+            """method to apply augmentations on a batch of images
 
-            input_1 = (
-                mixup_proportions * input_1
-                + (1 - mixup_proportions) * input_1[::-1, ...]
-            )
-            if self.train_mode in ["classifier", "combined"]:
+            Args:
+                input_1 (tf.Tensor): [description]
+                input_2 (tf.Tensor): [description]
+
+            Returns:
+                Tuple[tf.Tensor, tf.Tensor]: [description]
+            """
+
+            def random_rotate(images: tf.Tensor) -> tf.Tensor:
+                # randomly rotates each image in the batch
+                images = self.rotate_augmentation(images, training=True)
+                return images
+
+            def random_mixup(
+                inputs: Tuple[tf.Tensor, tf.Tensor]
+            ) -> Tuple[tf.Tensor, tf.Tensor]:
+
+                """method to apply transformations between elements of a given batch.
+                Takes a batch and mixes it with its own elements in reverse order.
+
+                Args:
+                    input_1, input_2 = inputs[0], inputs[1]
+                    input_1 (tf.Tensor): "classifier" & "pretrain": input_image
+                    input_2 (tf.Tensor): "classifier": one-hot labels, "pretrain": output_image
+
+                Returns:
+                    Tuple[tf.Tensor, tf.Tensor]: input/output tensor pair
+                """
+                input_1, input_2 = inputs
+
+                # Random mixing proportions for different elements
+                if self.contrast:
+                    mixup_proportions = tf.random.uniform(
+                        shape=[2 * self.batch_size, 1, 1, 1], minval=0.0, maxval=1.0
+                    )
+                else:
+                    mixup_proportions = tf.random.uniform(
+                        shape=[self.batch_size, 1, 1, 1], minval=0.0, maxval=1.0
+                    )
+
+                input_1 = (
+                    mixup_proportions * input_1
+                    + (1 - mixup_proportions) * input_1[::-1, ...]
+                )
                 mixup_proportions = tf.squeeze(mixup_proportions, axis=-1)
                 mixup_proportions = tf.squeeze(mixup_proportions, axis=-1)
                 input_2 = (
@@ -436,7 +468,14 @@ class DataGenerator:
                     + (1 - mixup_proportions) * input_2[::-1, ...]
                 )
                 input_2 = tf.concat([input_2] * self.layers, axis=-1)
-            else:
+                return input_1, input_2
+
+            input_1 = random_apply(random_rotate, p=0.5, image=input_1)
+            input_1, input_2 = random_apply(
+                random_mixup, p=0.0, image=(input_1, input_2)
+            )
+
+            if self.train_mode not in ["classifier", "combined"]:
                 # For pretraining, input and output are the same.
                 input_2 = input_1
             return input_1, input_2
@@ -445,9 +484,7 @@ class DataGenerator:
             tf.logical_and(
                 tf.less(
                     tf.random.uniform([], minval=0, maxval=1, dtype=tf.float32),
-                    tf.cast(
-                        0.0, tf.float32
-                    ),  # Only mixup augmentation to 10% of the batches
+                    1.0,
                 ),
                 self.augment,
             ),
@@ -479,20 +516,22 @@ class DataGenerator:
 
 
 if __name__ == "__main__":
-    # train_generator = DataGenerator(
-    #     batch_size=2,
-    #     shuffle=True,
-    #     augment=True,
-    #     contrastive=True,
-    #     train_mode="combined",
-    # )
+    train_generator = DataGenerator(
+        batch_size=2,
+        # shuffle=True,
+        augment=True,
+        contrastive=True,
+        train_mode="combined",
+    )
     # test_generator = DataGenerator(split="test")
-    val_generator = DataGenerator(split="val", contrastive=True, train_mode="combined")
+    # val_generator = DataGenerator(split="val", contrastive=True, train_mode="combined")
     # print(len(test_generator))
     # print(len(train_generator))
     # print(len(val_generator))
-    for a, (b, c, d) in val_generator().take(1):
+    for a, (b, c, d) in train_generator().take(1):
         print(a.shape)
         # print(b)
         print(c.shape)
         print(d)
+        tf.keras.preprocessing.image.save_img(f"test1.png", a.numpy()[0], scale=True)
+        tf.keras.preprocessing.image.save_img(f"test4.png", a.numpy()[3], scale=True)
