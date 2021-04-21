@@ -119,6 +119,8 @@ def conv_block(
     # Calculate skip tensor from previous levels
     skip_connection = KL.AveragePooling2D(pool_size=(2, 2), strides=2)(skip_tensors)
     out = KL.Activation("relu", name=name + "_relu")(out + skip_connection)
+
+    # skip tensor for next level
     skip_tensors = tf.concat([skip_connection, out], axis=-1)
     return out, skip_tensors
 
