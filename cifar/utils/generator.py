@@ -5,7 +5,10 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.keras.backend as K
 import tensorflow_datasets as tfds
-from tensorflow.keras.layers.experimental.preprocessing import RandomRotation
+from tensorflow.keras.layers.experimental.preprocessing import (
+    RandomRotation,
+    RandomTranslation,
+)
 
 
 def allowed_id_list(
@@ -169,6 +172,18 @@ def image_augmenter(image: tf.Tensor) -> tf.Tensor:
     def flipud(image: tf.Tensor):
         return image[::-1, :, :]
 
+    def channel_shuffle(image: tf.Tensor) -> tf.Tensor:
+        """method to randmly shuffle the color channels of the image"""
+
+        # Make the channels axis as the main axis
+        image = tf.transpose(image, perm=[2, 1, 0])
+        # Shuffle the channels
+        image = tf.random.shuffle(image)
+        # Return the original axes order
+        image = tf.transpose(image, perm=[2, 1, 0])
+
+        return image
+
     def crop_and_resize(image: tf.Tensor) -> tf.Tensor:
         """takes a random crop from the image and resize it to original image size"""
 
@@ -191,6 +206,7 @@ def image_augmenter(image: tf.Tensor) -> tf.Tensor:
     image = random_apply(fliplr, p=0.5, image=image)
     image = random_apply(flipud, p=0.5, image=image)
     image = random_apply(crop_and_resize, p=0.5, image=image)
+    image = random_apply(channel_shuffle, p=0.5, image=image)
     image = random_apply(random_color_jitter, p=0.5, image=image)
 
     return image
@@ -257,10 +273,13 @@ class DataGenerator:
         self.num_classes = len(labels)
 
         # Augmentators
-        # Define the rotation augmentator
-        self.rotate_augmentation = tf.keras.Sequential(
+        # Define the rotation & translation augmentator
+        self.rotate_translate = tf.keras.Sequential(
             [
-                RandomRotation(0.1),
+                RandomRotation(0.1, fill_mode="constant"),
+                RandomTranslation(
+                    height_factor=0.1, width_factor=0.1, fill_mode="constant"
+                ),
             ]
         )
         if split in ["train", "val"]:
@@ -425,9 +444,9 @@ class DataGenerator:
                 Tuple[tf.Tensor, tf.Tensor]: [description]
             """
 
-            def random_rotate(images: tf.Tensor) -> tf.Tensor:
+            def random_rotate_translate(images: tf.Tensor) -> tf.Tensor:
                 # randomly rotates each image in the batch
-                images = self.rotate_augmentation(images, training=True)
+                images = self.rotate_translate(images, training=True)
                 return images
 
             def random_mixup(
@@ -467,10 +486,9 @@ class DataGenerator:
                     mixup_proportions * input_2
                     + (1 - mixup_proportions) * input_2[::-1, ...]
                 )
-                input_2 = tf.concat([input_2] * self.layers, axis=-1)
                 return input_1, input_2
 
-            input_1 = random_apply(random_rotate, p=0.5, image=input_1)
+            input_1 = random_apply(random_rotate_translate, p=0.5, image=input_1)
             input_1, input_2 = random_apply(
                 random_mixup, p=0.0, image=(input_1, input_2)
             )
@@ -478,16 +496,13 @@ class DataGenerator:
             if self.train_mode not in ["classifier", "combined"]:
                 # For pretraining, input and output are the same.
                 input_2 = input_1
+            else:
+                # Classification output for multiple levels
+                input_2 = tf.concat([input_2] * self.layers, axis=-1)
             return input_1, input_2
 
         (input_1, input_2) = tf.cond(
-            tf.logical_and(
-                tf.less(
-                    tf.random.uniform([], minval=0, maxval=1, dtype=tf.float32),
-                    1.0,
-                ),
-                self.augment,
-            ),
+            tf.cast(self.augment, tf.bool),
             lambda: _augmenter(input_1, input_2),
             lambda: (input_1, tf.concat([input_2] * self.layers, axis=-1))
             if self.train_mode in ["classifier", "combined"]
