@@ -172,6 +172,10 @@ class Cifar:
 
         if FLAGS.train_mode in ["both", "pretrain"]:
             self.model = self.build()
+
+            # Initialize the epoch counter for model training
+            self.epoch = 0
+
         if FLAGS.train_mode in ["both", "classifier"]:
             if model_path:
                 # Load the model from saved ".h5" file
@@ -359,11 +363,11 @@ class Cifar:
         #     self.encoder_model = KM.load_model("ae_model/ae_model.h5").get_layer(
         #         "encoder"
         #     )
-
-        # build the encoder model
-        self.encoder_model = self.encoder(
-            features=self.encoder_features, name="encoder"
-        )
+        if FLAGS.train_mode != "both":
+            # build the encoder model
+            self.encoder_model = self.encoder(
+                features=self.encoder_features, name="encoder"
+            )
         encoded_features = self.encoder_model(input_tensor)
         contrastive_features = KL.Lambda(lambda x: K.mean(x, [1, 2]), name="contrast")(
             encoded_features[-1]
@@ -431,7 +435,8 @@ class Cifar:
                     * (FLAGS.train_batch_size / 32)
                 ),
                 loss="mse",
-                metrics="mae",
+                metrics=None,
+                loss_weights=0.1,
             )
         cce = tf.keras.losses.CategoricalCrossentropy(
             from_logits=True, label_smoothing=0.1
@@ -477,7 +482,7 @@ class Cifar:
         Returns:
             List[Callback]: list of all the callbacks
         """
-        if FLAGS.train_mode == "classifier":
+        if FLAGS.train_mode in ["classifier", "both"]:
             model = self.classifier
             model_dir = "class_model"
         elif FLAGS.train_mode == "combined":
@@ -526,6 +531,7 @@ class Cifar:
             # prepare the generator
             train_generator = DataGenerator(
                 batch_size=FLAGS.train_batch_size,
+                split="train",
                 augment=True,
                 shuffle=True,
                 cache=FLAGS.cache,
@@ -535,7 +541,7 @@ class Cifar:
             train_steps = len(train_generator)
             self.model.fit(
                 train_generator(),
-                initial_epoch=0,
+                initial_epoch=self.epoch,
                 epochs=epochs,
                 workers=8,
                 verbose=2,
@@ -545,6 +551,9 @@ class Cifar:
             # Save the trained autoencoder model
             os.makedirs("./ae_model", exist_ok=True)
             self.model.save("ae_model/ae_model.h5")
+
+            if FLAGS.train_mode == "both":
+                self.epoch = 0
 
         if FLAGS.train_mode in ["both", "classifier"]:
             # Directory for saving the trained model

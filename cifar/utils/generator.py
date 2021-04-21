@@ -452,7 +452,9 @@ class DataGenerator:
                 self.augment,
             ),
             lambda: _augmenter(input_1, input_2),
-            lambda: (input_1, tf.concat([input_2] * self.layers, axis=-1)),
+            lambda: (input_1, tf.concat([input_2] * self.layers, axis=-1))
+            if self.train_mode in ["classifier", "combined"]
+            else (input_1, input_1),  # For pretraining, input and output are the same.
         )
         if self.contrast:
             if self.train_mode == "combined":
