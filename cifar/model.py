@@ -3,8 +3,6 @@ import re
 import sys
 from typing import List, Tuple
 
-from tensorflow.python.keras.callbacks import Callback, ModelCheckpoint
-
 sys.path.append("./")
 import numpy as np
 import tensorflow as tf
@@ -13,6 +11,7 @@ import tensorflow.keras.layers as KL
 import tensorflow.keras.models as KM
 from absl import flags
 from keras_drop_block import DropBlock2D
+from tensorflow.python.keras.callbacks import Callback, ModelCheckpoint
 
 from cifar.utils.callbacks import EvalCallback
 from cifar.utils.generator import DataGenerator
@@ -126,13 +125,16 @@ def conv_block(
 
 
 def classifier_block(
-    encoded_features: List[tf.Tensor], num_classes: int = 10
+    encoded_features: List[tf.Tensor],
+    num_classes: int = 10,
+    activation: str = "sigmoid",
 ) -> List[tf.Tensor]:
     """shared classifier block across different training methods
 
     Args:
         encoded_features (List[tf.Tensor]): list of latent feature tensors from different levels
         num_classes (int, optional): total classes. Defaults to 10.
+        activation (str, optional): activation function for classification layers. Defaults to "sigmoid".
 
     Returns:
         List[tf.Tensor]: class logits from different levels
@@ -141,11 +143,11 @@ def classifier_block(
     # logits from the final layer of features of auto-encoder
     encoded_flat = KL.Flatten()(encoded_features[-1])
     encoded_flat = KL.Dropout(rate=0.2)(encoded_flat)
-    probs = KL.Dense(num_classes, activation="sigmoid", name="logits_n")(encoded_flat)
+    probs = KL.Dense(num_classes, activation=activation, name="logits_n")(encoded_flat)
 
     # logits from the all but last layer of features of auto-encoder
     pooled_probs = [
-        KL.Dense(num_classes, activation="sigmoid", name=f"logits_{i}")(
+        KL.Dense(num_classes, activation=activation, name=f"logits_{i}")(
             KL.Dropout(rate=0.2)(KL.Flatten()(KL.GlobalAveragePooling2D()(features)))
         )
         for i, features in enumerate(encoded_features[:-1], start=1)
@@ -616,11 +618,13 @@ class Cifar:
                 steps_per_epoch=train_steps,
                 callbacks=self.callbacks(val_generator),
             )
+            # os.makedirs("./com_model", exist_ok=True)
+            # self.combined.save("com_model/com_model.h5")
 
     def eval(self):
         val_generator = DataGenerator(
             batch_size=FLAGS.val_batch_size,
-            split="val",
+            split="test",
             layers=self.n_blocks,
             cache=FLAGS.cache,
             train_mode="classifier",
