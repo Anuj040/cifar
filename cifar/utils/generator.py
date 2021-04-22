@@ -206,7 +206,7 @@ def image_augmenter(image: tf.Tensor) -> tf.Tensor:
     image = random_apply(fliplr, p=0.5, image=image)
     image = random_apply(flipud, p=0.5, image=image)
     image = random_apply(crop_and_resize, p=0.5, image=image)
-    image = random_apply(channel_shuffle, p=0.5, image=image)
+    image = random_apply(channel_shuffle, p=0.0, image=image)
     image = random_apply(random_color_jitter, p=0.5, image=image)
 
     return image
@@ -352,6 +352,10 @@ class DataGenerator:
                 # Repeat the undersampled samples
                 residual = tf.less_equal(tf.random.uniform([], dtype=tf.float32), 1.0)
                 residual = tf.cast(residual, tf.int64)
+                # Oversample samples for label "2" using feedback from validation dataset
+                # residual = tf.cond(
+                #     tf.equal(label, 2), lambda: residual + 1, lambda: residual
+                # )
 
                 return tf.cond(
                     reduced_labels > 0,
@@ -488,7 +492,7 @@ class DataGenerator:
                 )
                 return input_1, input_2
 
-            input_1 = random_apply(random_rotate_translate, p=0.5, image=input_1)
+            input_1 = random_apply(random_rotate_translate, p=0.0, image=input_1)
             input_1, input_2 = random_apply(
                 random_mixup, p=0.0, image=(input_1, input_2)
             )
