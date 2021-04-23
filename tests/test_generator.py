@@ -2,8 +2,9 @@ import numpy as np
 from cifar.utils.generator import DataGenerator
 
 # Initializing one instance of train and test generators
-train_generator = DataGenerator(shuffle=True)
-test_generator = DataGenerator(split="test")
+batch_size = 32
+train_generator = DataGenerator(shuffle=True, batch_size=batch_size)
+test_generator = DataGenerator(split="test", batch_size=batch_size)
 
 # Retrieving one batch of images and labels for train and test set
 first_train_batch, first_train_label = next(iter(train_generator()))
@@ -15,15 +16,15 @@ def test_batch_number():
 
     # original train dataset size = 50000, batch_size = 32
     # Imbalanced: 3 classes reduced by 2500 examples followed by oversampling
-    train_length = (50000) // 32
+    train_length = (50000) // batch_size
 
     # test dataset size = 10000, batch_size = 32
-    test_length = (10000) // 32 + 1  # last fractional batch also considered
+    test_length = (10000) // batch_size + 1  # last fractional batch also considered
     assert len(train_generator) == train_length
     assert len(test_generator) == test_length
 
 
-def test_batch_constituents():
+def test_batch_constituents_shuffle():
     """test to make sure that dataset shuffling is working as expected"""
 
     # Retrieving second batch of images and labels for train and test set from a new instance of train and test generators
@@ -48,3 +49,19 @@ def test_batch_pretrain():
     )().take(5):
 
         assert np.all(input_train_batch.numpy() == output_train_batch.numpy())
+
+
+def test_batch_constituents_augment():
+    """test to make sure that dataset augmentation is working as expected"""
+
+    # Retrieving second batch of images and labels for train and test set from a new instance of train and test generators
+    second_train_batch, second_train_label = next(iter(DataGenerator(augment=True)()))
+    second_test_batch, second_test_label = next(iter(DataGenerator(split="test")()))
+
+    # Train dataset will be shuffled
+    assert not np.all(second_train_batch.numpy() == first_train_batch.numpy())
+    assert not np.all(second_train_label.numpy() == first_train_label.numpy())
+
+    # Test dataset not shuffled
+    assert np.all(second_test_batch.numpy() == first_test_batch.numpy())
+    assert np.all(second_test_label.numpy() == first_test_label.numpy())
