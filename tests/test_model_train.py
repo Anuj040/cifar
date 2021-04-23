@@ -65,6 +65,7 @@ def test_weight_frozen_both():
     assert np.all(weights_after_train_1 == weights_before_train_1)
 
 
-def test_model_eval_coverage():
+def test_model_eval_infer_coverage():
     model = Cifar(None, train_mode="classifier")
     model.eval()
+    model.infer("./test0.png")
