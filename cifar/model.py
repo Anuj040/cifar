@@ -521,6 +521,7 @@ class Cifar:
     def train(
         self,
         epochs: int = 10,
+        train_steps: int = None,
         train_batch_size: int = 32,
         val_batch_size: int = 32,
         classifier_loss: str = "focal",
@@ -568,7 +569,7 @@ class Cifar:
                 train_mode="pretrain",
             )
             # number of trainig steps per epoch
-            train_steps = len(train_generator)
+            train_steps = len(train_generator) if train_steps is None else train_steps
             self.model.fit(
                 train_generator(),
                 initial_epoch=self.epoch,
@@ -602,7 +603,9 @@ class Cifar:
             )
 
             # number of trainig steps per epoch
-            train_steps = len(train_generator_classifier)
+            train_steps = (
+                len(train_generator_classifier) if train_steps is None else train_steps
+            )
 
             # if self.train_mode == "both":
             #     # Use feature representations learnt from AutoEncoder training
@@ -635,7 +638,7 @@ class Cifar:
             )
 
             # number of trainig steps per epoch
-            train_steps = len(train_generator)
+            train_steps = len(train_generator) if train_steps is None else train_steps
 
             self.combined.fit(
                 train_generator(),
