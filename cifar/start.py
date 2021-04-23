@@ -28,11 +28,18 @@ flags.DEFINE_string("model_path", None, "Model file to resume training from")
 
 def main(argv):
 
-    model = Cifar(FLAGS.model_path)
+    model = Cifar(FLAGS.model_path, train_mode=FLAGS.train_mode)
     if FLAGS.mode == "eval":
-        model.eval()
+        model.eval(val_batch_size=FLAGS.val_batch_size)
     else:
-        model.train(epochs=FLAGS.epochs)
+        model.train(
+            epochs=FLAGS.epochs,
+            train_batch_size=FLAGS.train_batch_size,
+            val_batch_size=FLAGS.val_batch_size,
+            lr=FLAGS.lr,
+            gamma=FLAGS.gamma,
+            cache=FLAGS.cache,
+        )
 
 
 if __name__ == "__main__":

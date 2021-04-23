@@ -1,0 +1,14 @@
+# Version Unspecified
+absl-py
+Pillow
+pathlib
+pandas
+opencv-python
+
+# Version Specified
+keras==2.4.3
+keras_drop_block==0.5.0
+scikit-learn==0.23.2 
+imgaug==0.4.0
+tensorflow-addons==0.10.0
+tensorflow-datasets==4.2.0
