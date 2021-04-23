@@ -14,8 +14,8 @@ def test_batch_number():
     """test to make sure that dataset imbalancing leaves the expected number of batches"""
 
     # original train dataset size = 50000, batch_size = 32
-    # Imbalanced: 3 classes reduced by 2500 examples
-    train_length = (50000 - 3 * 2500) // 32
+    # Imbalanced: 3 classes reduced by 2500 examples followed by oversampling
+    train_length = (50000) // 32
 
     # test dataset size = 10000, batch_size = 32
     test_length = (10000) // 32 + 1  # last fractional batch also considered
