@@ -20,6 +20,7 @@ class EvalCallback(Callback):
 
     def __init__(self, model: KM.Model, val_generator: DataGenerator, layers: int = 1):
         super(EvalCallback, self).__init__()
+        self._supports_tf_logs = True
 
         self.val_generator = val_generator
         # Extract model object relevant to evaluate classification performance
@@ -31,6 +32,5 @@ class EvalCallback(Callback):
         self.evaluator.compile(loss=None, metrics=MultiLayerAccuracy(layers=layers))
 
     def on_epoch_end(self, epoch, logs: dict = None):
-
         metrics = self.evaluator.evaluate(self.val_generator(), verbose=0)
-        logs["val_acc"] = metrics[1]
+        logs["val_acc"] = tf.convert_to_tensor(metrics[1])
