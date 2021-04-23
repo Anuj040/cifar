@@ -9,15 +9,12 @@ import tensorflow as tf
 import tensorflow.keras.backend as K
 import tensorflow.keras.layers as KL
 import tensorflow.keras.models as KM
-from absl import flags
 from keras_drop_block import DropBlock2D
 from tensorflow.python.keras.callbacks import Callback, ModelCheckpoint
 
 from cifar.utils.callbacks import EvalCallback
 from cifar.utils.generator import DataGenerator
 from cifar.utils.losses import MultiLayerAccuracy, contrastive_loss, multi_layer_focal
-
-FLAGS = flags.FLAGS
 
 
 def deconv_block(input_tensor: tf.Tensor, features: int, name: str) -> tf.Tensor:
@@ -161,24 +158,28 @@ def classifier_block(
 
 
 class Cifar:
-    def __init__(self, model_path: str) -> None:
-        """
+    """
 
-        Args:
-            model_path (str): path to the saved model to resume training from
-        """
+    Args:
+        model_path (str): path to the saved model to resume training from
+        train_mmode (str): Whether to train encoder, classifier in succession or individually or combined
+    """
+
+    def __init__(self, model_path: str, train_mode: str = "combined") -> None:
+
         self.model_path = model_path
+        self.train_mode = train_mode
 
         # Number of features in successive hidden layers of encoder
         self.encoder_features = [128, 256, 512, 1024]
 
-        if FLAGS.train_mode in ["both", "pretrain"]:
+        if self.train_mode in ["both", "pretrain"]:
             self.model = self.build()
 
             # Initialize the epoch counter for model training
             self.epoch = 0
 
-        if FLAGS.train_mode in ["both", "classifier"]:
+        if self.train_mode in ["both", "classifier"]:
             if model_path:
                 # Load the model from saved ".h5" file
                 print(f"\nloading model ...\n{model_path}\n")
@@ -204,7 +205,7 @@ class Cifar:
                 # Initialize the epoch counter for model training
                 self.epoch = 0
 
-        if FLAGS.train_mode == "combined":
+        if self.train_mode == "combined":
 
             if model_path:
                 # Load the model from saved ".h5" file
@@ -360,12 +361,12 @@ class Cifar:
             KM.Model: Classifier model
         """
         input_tensor = KL.Input(shape=(32, 32, 3))
-        # if FLAGS.train_mode == "classifier":
+        # if self.train_mode == "classifier":
         #     # Use the pretrained encoder for classifier only training
         #     self.encoder_model = KM.load_model("ae_model/ae_model.h5").get_layer(
         #         "encoder"
         #     )
-        if FLAGS.train_mode != "both":
+        if self.train_mode != "both":
             # build the encoder model
             self.encoder_model = self.encoder(
                 features=self.encoder_features, name="encoder"
@@ -421,20 +422,28 @@ class Cifar:
             name="combined",
         )
 
-    def compile(self, classifier_loss: str = "focal"):
+    def compile(
+        self,
+        classifier_loss: str = "focal",
+        lr: float = 1e-3,
+        gamma: float = 2.0,
+        train_batch_size: int = 32,
+    ):
         """method to compile the model object with optimizer, loss definitions and metrics
 
         Args:
             classifier_loss (str, optional): loss function to use for classifier training. Defaults to "focal".
-
+            lr (float, optional): learning rate for training. defaults to 1e-3
+            gamma (float, optional): focussing parameter for focal loss. defaults to 2.0
+            train_batch_size (int, optional): batchsize for train dataset. Defaults to 32.
         """
         c_loss = contrastive_loss(hidden_norm=True, temperature=0.5, weights=1.0)
-        if FLAGS.train_mode in ["both", "pretrain"]:
+        if self.train_mode in ["both", "pretrain"]:
             self.model.compile(
                 optimizer=tf.keras.optimizers.Adam(
                     # Linear lr scaling, with batch size (default = 32)
-                    learning_rate=FLAGS.lr
-                    * (FLAGS.train_batch_size / 32)
+                    learning_rate=lr
+                    * (train_batch_size / 32)
                 ),
                 loss="mse",
                 metrics=None,
@@ -443,14 +452,14 @@ class Cifar:
         cce = tf.keras.losses.CategoricalCrossentropy(
             from_logits=True, label_smoothing=0.1
         )
-        focal = multi_layer_focal(gamma=FLAGS.gamma, layers=self.n_blocks)
+        focal = multi_layer_focal(gamma=gamma, layers=self.n_blocks)
         accuracy = MultiLayerAccuracy(layers=self.n_blocks)
-        if FLAGS.train_mode in ["both", "classifier"]:
+        if self.train_mode in ["both", "classifier"]:
             self.classifier.compile(
                 optimizer=tf.keras.optimizers.Adam(
                     # Linear lr scaling, with batch size (default = 32)
-                    learning_rate=FLAGS.lr
-                    * (FLAGS.train_batch_size / 32)
+                    learning_rate=lr
+                    * (train_batch_size / 32)
                 ),
                 loss={
                     "logits": focal if classifier_loss == "focal" else cce,
@@ -459,12 +468,12 @@ class Cifar:
                 metrics={"logits": accuracy, "contrast": None},
                 loss_weights={"logits": 10.0, "contrast": 0.0},
             )
-        if FLAGS.train_mode == "combined":
+        if self.train_mode == "combined":
             self.combined.compile(
                 optimizer=tf.keras.optimizers.Adam(
                     # Linear lr scaling, with batch size (default = 32)
-                    learning_rate=FLAGS.lr
-                    * (FLAGS.train_batch_size / 32)
+                    learning_rate=lr
+                    * (train_batch_size / 32)
                 ),
                 loss={
                     "decoder": "mse",
@@ -484,10 +493,10 @@ class Cifar:
         Returns:
             List[Callback]: list of all the callbacks
         """
-        if FLAGS.train_mode in ["classifier", "both"]:
+        if self.train_mode in ["classifier", "both"]:
             model = self.classifier
             model_dir = "class_model"
-        elif FLAGS.train_mode == "combined":
+        elif self.train_mode == "combined":
             model = self.combined
             model_dir = "com_model"
 
@@ -509,34 +518,53 @@ class Cifar:
         "Make sure checkpoint callback is after the eval_callback, dependency"
         return [eval_callback, checkpoint_callback]
 
-    def train(self, epochs: int = 10, classifier_loss: str = "focal"):
+    def train(
+        self,
+        epochs: int = 10,
+        train_batch_size: int = 32,
+        val_batch_size: int = 32,
+        classifier_loss: str = "focal",
+        lr: float = 1e-3,
+        gamma: float = 2.0,
+        cache: bool = False,
+    ):
         """method to initiate model training
 
         Args:
             epochs (int, optional): total number of training epochs. Defaults to 10.
-            classifier_loss(str, optional): loss function for classifier training. Defaults to "focal
+            train_batch_size (int, optional): batchsize for train dataset. Defaults to 32.
+            val_batch_size (int, optional): batchsize for validation dataset. Defaults to 32.
+            classifier_loss (str, optional): loss function for classifier training. Defaults to "focal
+            lr (float, optional): learning rate for training. defaults to 1e-3
+            gamma (float, optional): focussing parameter for focal loss. defaults to 2.0
+            cache (bool, optional): whether to store the train/val data in cache. defaults to False
         """
 
         # compile the model object
         if not self.model_path:
-            self.compile(classifier_loss=classifier_loss)
+            self.compile(
+                classifier_loss=classifier_loss,
+                lr=lr,
+                gamma=gamma,
+                train_batch_size=train_batch_size,
+            )
 
         # Common validation dataset format across all training regimes
         val_generator = DataGenerator(
-            batch_size=FLAGS.val_batch_size,
+            batch_size=val_batch_size,
             split="val",
             layers=self.n_blocks,
-            cache=FLAGS.cache,
+            cache=cache,
             train_mode="classifier",
         )
-        if FLAGS.train_mode in ["both", "pretrain"]:
+        if self.train_mode in ["both", "pretrain"]:
             # prepare the generator
             train_generator = DataGenerator(
-                batch_size=FLAGS.train_batch_size,
+                batch_size=train_batch_size,
                 split="train",
                 augment=True,
                 shuffle=True,
-                cache=FLAGS.cache,
+                cache=cache,
                 train_mode="pretrain",
             )
             # number of trainig steps per epoch
@@ -554,21 +582,21 @@ class Cifar:
             os.makedirs("./ae_model", exist_ok=True)
             self.model.save("ae_model/ae_model.h5")
 
-            if FLAGS.train_mode == "both":
+            if self.train_mode == "both":
                 self.epoch = 0
 
-        if FLAGS.train_mode in ["both", "classifier"]:
+        if self.train_mode in ["both", "classifier"]:
             # Directory for saving the trained model
             os.makedirs("./class_model", exist_ok=True)
 
             # prepare the generators for classifier training
             train_generator_classifier = DataGenerator(
-                batch_size=FLAGS.train_batch_size,
+                batch_size=train_batch_size,
                 split="train",
                 layers=self.n_blocks,
                 augment=True,
                 contrastive=True,
-                cache=FLAGS.cache,
+                cache=cache,
                 shuffle=True,
                 train_mode="classifier",
             )
@@ -576,7 +604,7 @@ class Cifar:
             # number of trainig steps per epoch
             train_steps = len(train_generator_classifier)
 
-            # if FLAGS.train_mode == "both":
+            # if self.train_mode == "both":
             #     # Use feature representations learnt from AutoEncoder training
             #     self.encoder_model.trainable = True
 
@@ -590,19 +618,19 @@ class Cifar:
                 callbacks=self.callbacks(val_generator),
             )
 
-        if FLAGS.train_mode == "combined":
+        if self.train_mode == "combined":
             # Directory for saving the trained model
             os.makedirs("./com_model", exist_ok=True)
 
             # prepare the generators for classifier training
             train_generator = DataGenerator(
-                batch_size=FLAGS.train_batch_size,
+                batch_size=train_batch_size,
                 split="train",
                 layers=self.n_blocks,
                 augment=True,
                 contrastive=True,
                 shuffle=True,
-                cache=FLAGS.cache,
+                cache=cache,
                 train_mode="combined",
             )
 
@@ -621,20 +649,25 @@ class Cifar:
             # os.makedirs("./com_model", exist_ok=True)
             # self.combined.save("com_model/com_model.h5")
 
-    def eval(self):
+    def eval(self, val_batch_size: int = 32):
+        """Method to run evaluation on the given dataset
+
+        Args:
+            val_batch_size (int, optional): batchsize for validation dataset. Defaults to 32.
+        """
+
         val_generator = DataGenerator(
-            batch_size=FLAGS.val_batch_size,
+            batch_size=val_batch_size,
             split="test",
             layers=self.n_blocks,
-            cache=FLAGS.cache,
             train_mode="classifier",
         )
-        if FLAGS.train_mode == "combined":
+        if self.train_mode == "combined":
             model = KM.Model(
                 inputs=self.combined.input,
                 outputs=self.combined.get_layer("logits").output,
             )
-        elif FLAGS.train_mode == "classifier":
+        elif self.train_mode == "classifier":
             model = KM.Model(
                 inputs=self.classifier.input,
                 outputs=self.classifier.get_layer("logits").output,
