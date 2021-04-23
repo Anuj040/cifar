@@ -25,7 +25,7 @@ There are three different training modes for the classifier training, plus one f
 
 1. For auto-encoder only training, please execute the following 
 ```
-poetry run python cifar/start.py --train_mode=pretrain --epochs=50
+poetry run python cifar/start.py --train_mode=pretrain --epochs=400
 ```
 2. For classifier's training
   * classifier only training
