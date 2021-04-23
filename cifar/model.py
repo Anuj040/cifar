@@ -714,6 +714,62 @@ class Cifar:
         # )
         # print(metrics)
 
+    def infer(self, image_path: str = None):
+        """Method to run single image inference
+
+        Args:
+            image_path (str, optional): path to the image to be inferred. Defaults to None.
+        """
+        # Class labels
+        labels = [
+            "airplane",
+            "automobile",
+            "bird",
+            "cat",
+            "deer",
+            "dog",
+            "frog",
+            "horse",
+            "ship",
+            "truck",
+        ]
+        # Retrieve the image
+        img = np.array(
+            tf.keras.preprocessing.image.load_img(image_path, color_mode="rgb")
+        )
+        # Convert it into model suitable form
+        img = 2.0 * tf.cast(tf.expand_dims(img, axis=0), tf.float32) / 255.0 - 1.0
+
+        # Prepare the model object
+        if self.train_mode == "combined":
+            model = KM.Model(
+                inputs=self.combined.input,
+                outputs=self.combined.get_layer("logits").output,
+            )
+        elif self.train_mode == "classifier":
+            model = KM.Model(
+                inputs=self.classifier.input,
+                outputs=self.classifier.get_layer("logits").output,
+            )
+
+        # Run through the model
+        pred_logits = model.predict(img)
+
+        # Split the logits from different levels
+        pred_logits = tf.split(
+            tf.expand_dims(pred_logits, axis=-1),
+            num_or_size_splits=self.n_blocks,
+            axis=1,
+        )
+        # Predicted label by taking an elementwise maximum across all layers
+        pred_logits = tf.reduce_max(tf.concat(pred_logits, axis=2), axis=2)
+        # Get pred labels
+        pred_labels = tf.argmax(pred_logits, axis=-1)
+        label = labels[pred_labels[0]]
+        upper = "_" * (31 + len(label))
+        lower = "-" * (31 + len(label))
+        print(f"{upper}\nThis image belongs to '{label}' class.\n{lower}")
+
 
 if __name__ == "__main__":
     model = Cifar()
