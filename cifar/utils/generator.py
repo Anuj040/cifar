@@ -212,6 +212,15 @@ def image_augmenter(image: tf.Tensor) -> tf.Tensor:
     return image
 
 
+def sample_beta_distribution(
+    size: int, concentration_0: float = 0.2, concentration_1: float = 0.2
+) -> tf.Tensor:
+    gamma_1_sample = tf.random.gamma(shape=[size], alpha=concentration_1)
+    gamma_2_sample = tf.random.gamma(shape=[size], alpha=concentration_0)
+
+    return gamma_1_sample / (gamma_1_sample + gamma_2_sample)
+
+
 class DataGenerator:
     """Train/test dataset generator class
 
@@ -472,13 +481,16 @@ class DataGenerator:
 
                 # Random mixing proportions for different elements
                 if self.contrast:
-                    mixup_proportions = tf.random.uniform(
-                        shape=[2 * self.batch_size, 1, 1, 1], minval=0.0, maxval=1.0
-                    )
+                    # mixup_proportions = tf.random.uniform(
+                    #     shape=[2 * self.batch_size, 1, 1, 1], minval=0.0, maxval=1.0
+                    # )
+                    # Sample lambda and reshape it to do the mixup
+                    l = sample_beta_distribution(2 * self.batch_size, 0.2, 0.2)
+                    mixup_proportions = tf.reshape(l, (2 * self.batch_size, 1, 1, 1))
                 else:
-                    mixup_proportions = tf.random.uniform(
-                        shape=[self.batch_size, 1, 1, 1], minval=0.0, maxval=1.0
-                    )
+                    # Sample lambda and reshape it to do the mixup
+                    l = sample_beta_distribution(self.batch_size, 0.2, 0.2)
+                    mixup_proportions = tf.reshape(l, (self.batch_size, 1, 1, 1))
 
                 input_1 = (
                     mixup_proportions * input_1
