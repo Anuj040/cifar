@@ -12,6 +12,9 @@ python -m pip install poetry
 poetry config virtualenvs.create true --local
 poetry config virtualenvs.in-project true --local
 
+# In case older version of pip throws installation errors
+poetry run python -m pip install --upgrade pip 
+
 # local environment preparation
 poetry install
 
