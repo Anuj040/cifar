@@ -12,6 +12,7 @@ import tensorflow.keras.models as KM
 from keras_drop_block import DropBlock2D
 from tensorflow.python.keras.callbacks import Callback, ModelCheckpoint
 
+from cifar.model_utils.attention_modules import cbam_block
 from cifar.utils.callbacks import EvalCallback
 from cifar.utils.generator import DataGenerator
 from cifar.utils.losses import MultiLayerAccuracy, contrastive_loss, multi_layer_focal
@@ -65,6 +66,8 @@ def conv_block(
     features_in: int,
     features_out: int,
     name: str,
+    spatial: bool = False,
+    cbam_kernel: int = 7,
 ) -> Tuple[tf.Tensor, List[tf.Tensor]]:
     """Bottleneck style convolutional block with skip connections across blocks. Applies downsample convolution in lower features space.
     Followed by single kernel convolution to higher feature space. Also, applies skip connections across blocks for routing information
@@ -76,6 +79,8 @@ def conv_block(
         features_in (int): number of features for incoming layer
         features_out (int): number of features for outgoing layer
         name (str): name for the tensors
+        spatial (bool, optional): whether to apply spatial attention from cbam block. Defaults to False.
+        cbam_kernal(int, optional): kernel size for convoltuion in spatial attention module. Defaults to 7.
 
     Returns:
         Tuple[tf.Tensor, List[tf.Tensor]]: output tensor, list of tensors to route info to next levels
@@ -110,6 +115,9 @@ def conv_block(
         name=name + f"_c{3}",
     )(out)
     out = KL.Activation("relu")(KL.BatchNormalization()(out))
+    out = cbam_block(
+        out, features=features_out, kernel=cbam_kernel, spatial=spatial, name=name
+    )
     out = KL.SpatialDropout2D(rate=0.2)(out)
 
     # Calculate skip tensor from previous levels
@@ -172,6 +180,9 @@ class Cifar:
 
         # Number of features in successive hidden layers of encoder
         self.encoder_features = [128, 256, 512, 1024]
+
+        # Default value of 7 too big for cifar feature maps
+        self.cbam_kernels = [5, 5, 3, 3]
 
         if self.train_mode in ["both", "pretrain"]:
             self.model = self.build()
@@ -261,6 +272,15 @@ class Cifar:
             name=name + f"_conv_{1}",
         )(input_tensor)
         encoded = KL.Activation("relu")(KL.BatchNormalization()(encoded))
+
+        # cbam block on first layer features
+        encoded = cbam_block(
+            encoded,
+            features=features[0],
+            kernel=self.cbam_kernels[0],
+            spatial=True,
+            name=name + f"_conv_{1}",
+        )
         encoded_list = [encoded]
 
         # Prepare the skip tensor from input
@@ -287,6 +307,8 @@ class Cifar:
                 features_in=features[i - 2],
                 features_out=feature_num,
                 name=name + f"_conv_{i}",
+                spatial=True if feature_num < features[-1] else False,
+                cbam_kernel=self.cbam_kernels[i - 1],
             )
             encoded_list.append(encoded)
         return KM.Model(inputs=input_tensor, outputs=encoded_list, name=name)
