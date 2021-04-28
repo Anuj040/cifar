@@ -1,3 +1,5 @@
+"""module containing different convolution layer attention mechanisms"""
+
 import tensorflow as tf
 import tensorflow.keras.layers as KL
 import tensorflow.keras.models as KM
@@ -8,7 +10,8 @@ def channel_attention(features: int, reduction: int = 16, name: str = "") -> KM.
 
     Args:
         features (int): number of features for incoming tensor
-        reduction (int, optional): Reduction ratio for the MLP to squeeze information across channels. Defaults to 16.
+        reduction (int, optional): Reduction ratio for the MLP to squeeze information
+        across channels.Defaults to 16.
         name (str, optional): Defaults to "".
 
     Returns:
@@ -63,7 +66,7 @@ def spatial_attention(
     # Max pool across channels for a given spatial location
     max_pool = tf.reduce_max(input_tensor, axis=[-1], keepdims=True)
 
-    concat_pool = tf.concat([avg, max_pool], axis=-1)
+    concat_pool = tf.concat(values=[avg, max_pool], axis=-1)
 
     # Attention for spatial locations
     conv = KL.Conv2D(
@@ -89,7 +92,7 @@ def cbam_block(
         features (int): number of features for incoming layer
         kernel (int): kernel size for spatial attention module
         spatial (bool, optional): whether to apply spatial attention. Defaults to False.
-                                False: equivalent to squueze and excitation block with both max and avg. pool.
+        False: equivalent to squueze and excitation block with both max and avg. pool.
         name (str, optional): Defaults to "".
 
     Returns:
