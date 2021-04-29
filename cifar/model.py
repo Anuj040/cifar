@@ -114,15 +114,15 @@ def conv_block(
         use_bias=False,
         name=name + f"_c{3}",
     )(out)
-    out = KL.Activation("relu")(KL.BatchNormalization()(out))
+    out = KL.BatchNormalization()(out)
     out = cbam_block(
         out, features=features_out, kernel=cbam_kernel, spatial=spatial, name=name
     )
-    out = KL.SpatialDropout2D(rate=0.2)(out)
 
     # Calculate skip tensor from previous levels
     skip_connection = KL.AveragePooling2D(pool_size=(2, 2), strides=2)(skip_tensors)
     out = KL.Activation("relu", name=name + "_relu")(out + skip_connection)
+    out = KL.SpatialDropout2D(rate=0.2)(out)
 
     # skip tensor for next level
     skip_tensors = tf.concat([skip_connection, out], axis=-1)
