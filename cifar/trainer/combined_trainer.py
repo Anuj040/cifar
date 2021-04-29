@@ -3,19 +3,26 @@
 import tensorflow.keras.models as KM
 
 
-class Trainer(KM.Model):
+class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
+    """Custom function for combined training of classifier/autoencoder using model.fit()
+        With functionality for selective back propagation for accelerated training.
+
+    Args:
+        combined (KM.Model): combined classifier/autoencoder model
+    """
+
     def __init__(self, combined: KM.Model):
-        super(Trainer, self).__init__()
+        super().__init__()
         self.combined = combined
 
     def compile(self):
-        super(Trainer, self).compile()
+        super().compile()
 
-    def call(self, *args, **kwargs):
-        super(Trainer, self).call(*args, **kwargs)
+    def call(self):
+        ...
 
-    def train_step(self, *args, **kwargs):
-        super(Trainer, self).train_step(*args, **kwargs)
+    def train_step(self, inputs):
+        ...
 
 
 if __name__ == "__main__":
