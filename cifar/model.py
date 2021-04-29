@@ -781,9 +781,35 @@ class Cifar:
         gamma: float = 2.0,
         cache: bool = False,
     ):
+        # create trainer object
         com_train = Trainer(combined=self.combined)
+
+        ## prepare compile args.
+        # optimizer
+        optimizer = tf.keras.optimizers.Adam(
+            # Linear lr scaling, with batch size (default = 32)
+            learning_rate=lr
+            * (train_batch_size / 32)
+        )
+
+        # loss definitions and weights
+        c_loss = contrastive_loss(hidden_norm=True, temperature=0.5, weights=1.0)
+        cce = tf.keras.losses.CategoricalCrossentropy(
+            from_logits=True, label_smoothing=0.1
+        )
+        focal = multi_layer_focal(gamma=gamma, layers=self.n_blocks)
+        loss = {
+            "decoder": "mse",
+            "logits": focal if classifier_loss == "focal" else cce,
+            "contrast": c_loss,
+        }
+        loss_weights = {"decoder": 0.1, "logits": 10.0, "contrast": 0.0}
+
+        # metrics
+        accuracy = MultiLayerAccuracy(layers=self.n_blocks)
+        metrics = {"decoder": None, "logits": accuracy, "contrast": None}
 
 
 if __name__ == "__main__":
-    model = Cifar()
+    model = Cifar(None)
     model.train()
