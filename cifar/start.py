@@ -38,7 +38,7 @@ def main(argv):
         assert FLAGS.img_path is not None, "\nProvide path to image\n"
         model.infer(FLAGS.img_path)
     else:
-        model.train(
+        model.custom_train(
             epochs=FLAGS.epochs,
             train_batch_size=FLAGS.train_batch_size,
             val_batch_size=FLAGS.val_batch_size,

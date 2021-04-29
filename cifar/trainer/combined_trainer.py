@@ -4,8 +4,9 @@ import tensorflow.keras.models as KM
 
 
 class Trainer(KM.Model):
-    def __init__(self):
+    def __init__(self, combined: KM.Model):
         super(Trainer, self).__init__()
+        self.combined = combined
 
     def compile(self):
         super(Trainer, self).compile()

@@ -3,7 +3,6 @@ import re
 import sys
 from typing import List, Tuple
 
-sys.path.append("./")
 import numpy as np
 import tensorflow as tf
 import tensorflow.keras.backend as K
@@ -12,6 +11,7 @@ import tensorflow.keras.models as KM
 from keras_drop_block import DropBlock2D
 from tensorflow.python.keras.callbacks import Callback, ModelCheckpoint
 
+from cifar.trainer.combined_trainer import Trainer
 from cifar.utils.callbacks import EvalCallback
 from cifar.utils.generator import DataGenerator
 from cifar.utils.losses import MultiLayerAccuracy, contrastive_loss, multi_layer_focal
@@ -769,6 +769,19 @@ class Cifar:
         upper = "_" * (31 + len(label))
         lower = "-" * (31 + len(label))
         print(f"{upper}\nThis image belongs to '{label}' class.\n{lower}")
+
+    def custom_train(
+        self,
+        epochs: int = 10,
+        train_steps: int = None,
+        train_batch_size: int = 32,
+        val_batch_size: int = 32,
+        classifier_loss: str = "focal",
+        lr: float = 1e-3,
+        gamma: float = 2.0,
+        cache: bool = False,
+    ):
+        com_train = Trainer(combined=self.combined)
 
 
 if __name__ == "__main__":
