@@ -14,7 +14,8 @@ from tensorflow.python.keras.callbacks import Callback, ModelCheckpoint
 from cifar.trainer.combined_trainer import Trainer
 from cifar.utils.callbacks import EvalCallback
 from cifar.utils.generator import DataGenerator
-from cifar.utils.losses import MultiLayerAccuracy, contrastive_loss, multi_layer_focal
+from cifar.utils.losses import (MultiLayerAccuracy, contrastive_loss,
+                                multi_layer_focal)
 
 
 def deconv_block(input_tensor: tf.Tensor, features: int, name: str) -> tf.Tensor:
@@ -799,7 +800,7 @@ class Cifar:
         )
         focal = multi_layer_focal(gamma=gamma, layers=self.n_blocks)
         loss = {
-            "decoder": "mse",
+            "decoder": tf.keras.losses.mean_squared_error,
             "logits": focal if classifier_loss == "focal" else cce,
             "contrast": c_loss,
         }
@@ -814,7 +815,7 @@ class Cifar:
             optimizer=optimizer, loss=loss, loss_weights=loss_weights, metrics=metrics
         )
 
-        # set up the generator functions
+        set up the generator functions
         val_generator = DataGenerator(
             batch_size=val_batch_size,
             split="val",
@@ -825,13 +826,25 @@ class Cifar:
         train_generator = DataGenerator(
             batch_size=train_batch_size,
             split="train",
+            layers=self.n_blocks,
             augment=True,
+            contrastive=True,
             shuffle=True,
             cache=cache,
-            train_mode="pretrain",
+            train_mode="combined",
         )
         # number of trainig steps per epoch
         train_steps = len(train_generator) if train_steps is None else train_steps
+
+        com_train.fit(
+            train_generator(),
+            initial_epoch=self.epoch,
+            epochs=epochs,
+            workers=8,
+            verbose=2,
+            steps_per_epoch=train_steps,
+            # callbacks=self.callbacks(val_generator),
+        )
 
 
 if __name__ == "__main__":

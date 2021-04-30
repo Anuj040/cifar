@@ -63,8 +63,34 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
         )
         return model(inputs)
 
-    def train_step(self, inputs):
-        ...
+    def train_step(self, inputs: tf.Tensor):
+        images, outputs = inputs
+
+        # Train the combined model
+        with tf.GradientTape() as tape:
+
+            # get the model outputs
+            model_outputs = self.combined(images)
+
+            losses = []
+            losses_grad = []
+            # calculate losses
+            for i, key in enumerate(self.loss_keys):
+                losses.append(self.loss[key](outputs[i], model_outputs[i]))
+
+                # for gradient calculations
+                # losses multiplied with corresponding weights
+                losses_grad.append(losses[i] * self.loss_weights[key])
+
+        # calculate and apply gradients
+        grads = tape.gradient(
+            losses_grad,
+            self.combined.trainable_weights,
+        )
+        self.optimizer.apply_gradients(zip(grads, self.combined.trainable_weights))
+
+        del tape
+        return dict(zip(self.loss_keys, losses))
 
 
 if __name__ == "__main__":
