@@ -48,8 +48,20 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
         # Store the keys for each model output
         self.loss_keys = self.loss.keys()
 
-    def call(self):
-        ...
+    def call(self, inputs: tf.Tensor) -> tf.Tensor:
+        """method to process model call
+
+        Args:
+            inputs (tf.Tensor): input tensor
+
+        Returns:
+            tf.Tensor: model output
+        """
+        model = KM.Model(
+            inputs=self.combined.input,
+            outputs=self.combined.get_layer("logits").output,
+        )
+        return model(inputs)
 
     def train_step(self, inputs):
         ...
