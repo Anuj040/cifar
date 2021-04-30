@@ -148,7 +148,7 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
         metric_func = self.loss_metrics["logits"]
 
         # Calculate the performance metrics
-        metric_func.update_state(outputs[0], model_outputs)
+        metric_func.update_state(outputs, model_outputs)
 
         # return the logs dict
         return {metric_func.name: metric_func.result()}
