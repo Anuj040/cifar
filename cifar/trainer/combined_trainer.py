@@ -1,5 +1,6 @@
 """Module implementing custom model.fit for combined model training"""
 
+import tensorflow as tf
 import tensorflow.keras.models as KM
 
 
@@ -15,7 +16,13 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
         super().__init__()
         self.combined = combined
 
-    def compile(self):
+    def compile(
+        self,
+        optimizer: tf.keras.optimizers,
+        loss: dict,
+        loss_weights: dict,
+        metrics: dict,
+    ):
         super().compile()
 
     def call(self):

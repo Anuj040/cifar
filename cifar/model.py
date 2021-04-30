@@ -809,6 +809,11 @@ class Cifar:
         accuracy = MultiLayerAccuracy(layers=self.n_blocks)
         metrics = {"decoder": None, "logits": accuracy, "contrast": None}
 
+        # compile the trainer object
+        com_train.compile(
+            optimizer=optimizer, loss=loss, loss_weights=loss_weights, metrics=metrics
+        )
+
 
 if __name__ == "__main__":
     model = Cifar(None)
