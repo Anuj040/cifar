@@ -814,6 +814,25 @@ class Cifar:
             optimizer=optimizer, loss=loss, loss_weights=loss_weights, metrics=metrics
         )
 
+        # set up the generator functions
+        val_generator = DataGenerator(
+            batch_size=val_batch_size,
+            split="val",
+            layers=self.n_blocks,
+            cache=cache,
+            train_mode="classifier",
+        )
+        train_generator = DataGenerator(
+            batch_size=train_batch_size,
+            split="train",
+            augment=True,
+            shuffle=True,
+            cache=cache,
+            train_mode="pretrain",
+        )
+        # number of trainig steps per epoch
+        train_steps = len(train_generator) if train_steps is None else train_steps
+
 
 if __name__ == "__main__":
     model = Cifar(None)
