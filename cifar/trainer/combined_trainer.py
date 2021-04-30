@@ -16,6 +16,12 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
         super().__init__()
         self.combined = combined
 
+        # Extract the classifier model object
+        self.classifier_model = KM.Model(
+            inputs=self.combined.input,
+            outputs=self.combined.get_layer("logits").output,
+        )
+
     def compile(
         self,
         optimizer: tf.keras.optimizers,
@@ -49,7 +55,7 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
         self.loss_keys = self.loss.keys()
 
     def call(self, inputs: tf.Tensor) -> tf.Tensor:
-        """method to process model call
+        """method to process model call for classification
 
         Args:
             inputs (tf.Tensor): input tensor
@@ -57,14 +63,19 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
         Returns:
             tf.Tensor: model output
         """
-        model = KM.Model(
-            inputs=self.combined.input,
-            outputs=self.combined.get_layer("logits").output,
-        )
-        return model(inputs)
 
-    def train_step(self, inputs: tf.Tensor) -> dict:
-        images, outputs = inputs
+        return self.classifier_model(inputs)
+
+    def train_step(self, data: tf.Tensor) -> dict:
+        """method to implement a training step on the combined model
+
+        Args:
+            data (tf.Tensor): a batch instance consisting of input-output pair
+
+        Returns:
+            dict: dict object containing batch performance parameters
+        """
+        images, outputs = data
 
         # Train the combined model
         with tf.GradientTape() as tape:
@@ -117,6 +128,30 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
             for key, metric_func in self.loss_metrics.items()
             if metric_func is not None
         ]
+
+    def test_step(self, data: tf.Tensor) -> dict:
+        """method to implement evaluation step on the classifier model
+
+        Args:
+            data (tf.Tensor): a batch instance consisting of input-output pair
+
+        Returns:
+            dict: dict object containing batch performance parameters on classification task only
+        """
+
+        images, outputs = data
+
+        # get the model outputs
+        model_outputs = self.classifier_model(images)
+
+        # Get the metric calculator
+        metric_func = self.loss_metrics["logits"]
+
+        # Calculate the performance metrics
+        metric_func.update_state(outputs[0], model_outputs)
+
+        # return the logs dict
+        return {metric_func.name: metric_func.result()}
 
 
 if __name__ == "__main__":
