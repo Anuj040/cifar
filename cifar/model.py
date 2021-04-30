@@ -14,8 +14,7 @@ from tensorflow.python.keras.callbacks import Callback, ModelCheckpoint
 from cifar.trainer.combined_trainer import Trainer
 from cifar.utils.callbacks import EvalCallback
 from cifar.utils.generator import DataGenerator
-from cifar.utils.losses import (MultiLayerAccuracy, contrastive_loss,
-                                multi_layer_focal)
+from cifar.utils.losses import MultiLayerAccuracy, contrastive_loss, multi_layer_focal
 
 
 def deconv_block(input_tensor: tf.Tensor, features: int, name: str) -> tf.Tensor:
@@ -815,7 +814,7 @@ class Cifar:
             optimizer=optimizer, loss=loss, loss_weights=loss_weights, metrics=metrics
         )
 
-        set up the generator functions
+        # set up the generator functions
         val_generator = DataGenerator(
             batch_size=val_batch_size,
             split="val",

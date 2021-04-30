@@ -63,7 +63,7 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
         )
         return model(inputs)
 
-    def train_step(self, inputs: tf.Tensor):
+    def train_step(self, inputs: tf.Tensor) -> dict:
         images, outputs = inputs
 
         # Train the combined model
@@ -89,8 +89,34 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
         )
         self.optimizer.apply_gradients(zip(grads, self.combined.trainable_weights))
 
+        # prepare the logs dictionary
+        logs = dict(zip(self.loss_keys, losses))
+
+        # Add metrics if applicable
+        for i, key in enumerate(self.loss_keys):
+            metric_func = self.loss_metrics[key]
+
+            # Only evaluate the not-None metrics
+            if metric_func is not None:
+                metric_func.update_state(outputs[i], model_outputs[i])
+                logs[metric_func.name] = metric_func.result()
+
+        # House-keeping
         del tape
-        return dict(zip(self.loss_keys, losses))
+        return logs
+
+    @property
+    def metrics(self):
+        # list `Metric` objects here so that `reset_states()` can be
+        # called automatically at the start of each epoch
+        # or at the start of `evaluate()`.
+        # Without this property, `reset_states()` will have to called
+        # manually.
+        return [
+            metric_func
+            for key, metric_func in self.loss_metrics.items()
+            if metric_func is not None
+        ]
 
 
 if __name__ == "__main__":
