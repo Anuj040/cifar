@@ -842,8 +842,10 @@ class Cifar:
             workers=8,
             verbose=2,
             steps_per_epoch=train_steps,
-            # callbacks=self.callbacks(val_generator),
+            validation_data=val_generator(),
         )
+        #     callbacks=self.callbacks(val_generator),
+        # )
 
 
 if __name__ == "__main__":
