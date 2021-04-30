@@ -12,7 +12,7 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
         combined (KM.Model): combined classifier/autoencoder model
     """
 
-    def __init__(self, combined: KM.Model):
+    def __init__(self, combined: KM.Model) -> None:
         super().__init__()
         self.combined = combined
 
@@ -22,8 +22,31 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
         loss: dict,
         loss_weights: dict,
         metrics: dict,
-    ):
+    ) -> None:
+        """compiles the model object with corresponding attributes
+
+        Args:
+            optimizer (tf.keras.optimizers): optimizer for model training
+            loss (dict): loss definitions for the model outputs
+            loss_weights (dict): weights for the loss functions
+            metrics (dict): performance metrics for the model outputs
+        """
         super().compile()
+        self.optimizer = optimizer
+        self.loss = loss
+
+        assert len(self.loss) == len(
+            loss_weights
+        ), "provide weights for all the loss definitions"
+        self.loss_weights = loss_weights
+
+        assert len(self.loss) == len(
+            metrics
+        ), "provide metric functions for all outputs, 'None' wherever not applicable"
+        self.loss_metrics = metrics
+
+        # Store the keys for each model output
+        self.loss_keys = self.loss.keys()
 
     def call(self):
         ...
