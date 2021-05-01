@@ -195,5 +195,35 @@ def contrastive_loss(
     return _loss
 
 
+def reconstruction_loss(weights: float = 1.0):
+    """custom mean squared error (mse) function to return samplewise error.
+
+    Args:
+        weights (float, optional): loss weight. Defaults to 1.0.
+
+    Returns:
+        loss function.
+    """
+
+    def _loss(y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
+        """mse loss calculating function
+
+        Args:
+            y_true (tf.Tensor): input images tensor
+            y_pred (tf.Tensor): reconstructed images tensor
+
+        Returns:
+            tf.Tensor: samplewise reconstruction errors
+        """
+
+        # mean over all but batch dimension
+        loss = K.mean(K.square(y_true - y_pred), axis=[1, 2, 3])
+
+        return weights * loss
+
+    _loss.__name__ = "mse"
+    return _loss
+
+
 if __name__ == "__main__":
     categorical_focal_loss()

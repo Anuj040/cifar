@@ -14,7 +14,12 @@ from tensorflow.python.keras.callbacks import Callback, ModelCheckpoint
 from cifar.trainer.combined_trainer import Trainer
 from cifar.utils.callbacks import EvalCallback
 from cifar.utils.generator import DataGenerator
-from cifar.utils.losses import MultiLayerAccuracy, contrastive_loss, multi_layer_focal
+from cifar.utils.losses import (
+    MultiLayerAccuracy,
+    contrastive_loss,
+    multi_layer_focal,
+    reconstruction_loss,
+)
 
 
 def deconv_block(input_tensor: tf.Tensor, features: int, name: str) -> tf.Tensor:
@@ -799,7 +804,7 @@ class Cifar:
         )
         focal = multi_layer_focal(gamma=gamma, layers=self.n_blocks)
         loss = {
-            "decoder": tf.keras.losses.mean_squared_error,
+            "decoder": reconstruction_loss(),  # custom mse
             "logits": focal if classifier_loss == "focal" else cce,
             "contrast": c_loss,
         }
