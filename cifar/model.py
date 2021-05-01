@@ -835,6 +835,10 @@ class Cifar:
         # number of trainig steps per epoch
         train_steps = len(train_generator) if train_steps is None else train_steps
 
+        # Directory for saving the trained model
+        os.makedirs("./com_model", exist_ok=True)
+
+        # commence model training
         com_train.fit(
             train_generator(),
             initial_epoch=self.epoch,
@@ -843,9 +847,15 @@ class Cifar:
             verbose=2,
             steps_per_epoch=train_steps,
             validation_data=val_generator(),
+            callbacks=ModelCheckpoint(
+                "com_model/com_model_{epoch:04d}_{val_acc:.4f}.h5",
+                monitor="val_acc",
+                verbose=0,
+                save_best_only=True,
+                save_weights_only=False,
+                mode="max",
+            ),
         )
-        #     callbacks=self.callbacks(val_generator),
-        # )
 
 
 if __name__ == "__main__":
