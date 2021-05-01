@@ -42,7 +42,7 @@ def categorical_focal_loss(alpha: float = 0.25, gamma: float = 2.0):
         ) * K.pow(y_pred, gamma) * K.log(1 - y_pred)
 
         # Compute mean loss in mini_batch
-        return K.mean(K.sum(loss, axis=-1))
+        return K.sum(loss, axis=-1)
 
     _loss.__name__ = "focal"
 
