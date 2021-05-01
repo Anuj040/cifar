@@ -52,6 +52,7 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
         self.loss_metrics = metrics
 
         # Store the keys for each model output
+        ## Make sure that the keys are in the same order as the model outputs
         self.loss_keys = self.loss.keys()
 
     def call(self, inputs: tf.Tensor) -> tf.Tensor:
@@ -64,7 +65,7 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
             tf.Tensor: model output
         """
 
-        return self.classifier_model(inputs)
+        return self.classifier_model(inputs, training=False)
 
     def train_step(self, data: tf.Tensor) -> dict:
         """method to implement a training step on the combined model
@@ -81,7 +82,7 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
         with tf.GradientTape() as tape:
 
             # get the model outputs
-            model_outputs = self.combined(images)
+            model_outputs = self.combined(images, training=True)
 
             losses = []
             losses_grad = []
@@ -91,7 +92,7 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
 
                 # for gradient calculations
                 # losses multiplied with corresponding weights
-                losses_grad.append(losses[i] * self.loss_weights[key])
+                losses_grad.append(tf.reduce_mean(losses[i]) * self.loss_weights[key])
 
         # calculate and apply gradients
         grads = tape.gradient(
@@ -142,7 +143,7 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
         images, outputs = data
 
         # get the model outputs
-        model_outputs = self.classifier_model(images)
+        model_outputs = self.classifier_model(images, training=False)
 
         # Get the metric calculator
         metric_func = self.loss_metrics["logits"]
