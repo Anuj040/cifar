@@ -76,9 +76,54 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
         Returns:
             dict: dict object containing batch performance parameters
         """
+        # unpack the data
         images, outputs = data
 
-        # Train the combined model
+        # Filter out the most lossy samples
+        # get the model outputs
+        model_outputs = self.combined(images, training=False)
+
+        losses = 0.0
+        # calculate losses
+        for i, key in enumerate(self.loss_keys):
+            # weighted representative losses for each sample
+            losses += (
+                self.loss[key](outputs[i], model_outputs[i]) * self.loss_weights[key]
+            )
+
+        # get the batch_size
+        # for contrastive loss need to pick the image pairs
+        # TODO: make it general with contrastive loss as a special case
+        batch_size = 0.5 * tf.cast(tf.shape(losses), tf.float32)
+        batch_size = tf.cast(batch_size, tf.int64)[0]
+
+        # if gap between min and max loss large
+        # focus on high loss samples
+        loss_threshold = tf.cond(
+            tf.greater(tf.math.reduce_min(losses), 0.25 * tf.math.reduce_max(losses)),
+            lambda: 0.0,
+            lambda: 2.0 * tf.math.reduce_min(losses),
+        )
+        # get the indices for samples with loss > threshold
+        indices = tf.where(losses[:batch_size] >= loss_threshold)
+
+        # batch size for the filtered batch
+        batch_size_apparent = tf.shape(indices)[0]
+
+        # indices for the image pairs for contrastive loss
+        # TODO: general and special case
+        indices = tf.concat(values=[indices, indices + batch_size], axis=0)
+
+        # convert the dtypes
+        batch_size = tf.cast(batch_size, tf.float32)
+        batch_size_apparent = tf.cast(batch_size_apparent, tf.float32)
+
+        # filtered input-output pairs
+        images, outputs = tf.gather_nd(images, indices), [
+            tf.gather_nd(output, indices) for output in outputs
+        ]
+
+        # Train the combined model only on the selected samples
         with tf.GradientTape() as tape:
 
             # get the model outputs
@@ -92,7 +137,12 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
 
                 # for gradient calculations
                 # losses multiplied with corresponding weights
-                losses_grad.append(tf.reduce_mean(losses[i]) * self.loss_weights[key])
+                # tune the learning rate considering the dynamic batch sizing
+                losses_grad.append(
+                    (batch_size_apparent / batch_size)
+                    * tf.reduce_mean(losses[i])
+                    * self.loss_weights[key]
+                )
 
         # calculate and apply gradients
         grads = tape.gradient(
@@ -103,6 +153,7 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
 
         # prepare the logs dictionary
         logs = dict(zip(self.loss_keys, losses))
+        logs = {key: tf.reduce_mean(value) for key, value in logs.items()}
 
         # Add metrics if applicable
         for i, key in enumerate(self.loss_keys):
@@ -139,7 +190,7 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
         Returns:
             dict: dict object containing batch performance parameters on classification task only
         """
-
+        # unpack the data
         images, outputs = data
 
         # get the model outputs
