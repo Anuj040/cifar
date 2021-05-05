@@ -2,6 +2,7 @@
 
 import tensorflow as tf
 import tensorflow.keras.models as KM
+import tensorflow_probability as tfp
 
 
 class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
@@ -100,9 +101,13 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
         # if gap between min and max loss large
         # focus on high loss samples
         loss_threshold = tf.cond(
-            tf.greater(tf.math.reduce_min(losses), 0.25 * tf.math.reduce_max(losses)),
+            # gap b/w min & max loss controls the use of selective backprop
+            tf.greater(tf.math.reduce_min(losses), 0.10 * tf.math.reduce_max(losses)),
             lambda: 0.0,
-            lambda: 2.0 * tf.math.reduce_min(losses),
+            # selecting top 1/3rd lossy samples
+            lambda: tfp.stats.percentile(
+                losses, q=66.67, axis=[0], interpolation="linear"
+            ),
         )
         # get the indices for samples with loss > threshold
         indices = tf.where(losses[:batch_size] >= loss_threshold)
