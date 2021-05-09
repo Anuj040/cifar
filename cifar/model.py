@@ -271,7 +271,7 @@ class Cifar:
             use_bias=False,
             name=name + f"_conv_{1}",
         )(input_tensor)
-        encoded = KL.Activation("relu")(KL.BatchNormalization()(encoded))
+        encoded = KL.BatchNormalization()(encoded)
 
         # cbam block on first layer features
         encoded = cbam_block(
@@ -281,6 +281,7 @@ class Cifar:
             spatial=True,
             name=name + f"_conv_{1}",
         )
+        encoded = KL.Activation("relu")(encoded)
         encoded_list = [encoded]
 
         # Prepare the skip tensor from input
