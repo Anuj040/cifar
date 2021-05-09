@@ -1,0 +1,14 @@
+{
+    "python.pythonPath": "./.venv/bin/python",
+    "editor.formatOnSave": true,
+    "python.formatting.provider": "black",
+    "editor.cursorBlinking": "phase",
+    "python.sortImports.path": "isort",
+    "editor.codeActionsOnSave": {
+        "source.organizeImports": true
+    },
+    "python.linting.mypyEnabled": false,
+    "python.linting.pylintEnabled": true,
+    "less.lint.importStatement": "warning",
+    "python.linting.enabled": true
+}
