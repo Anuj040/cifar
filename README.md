@@ -3,7 +3,7 @@
 ## Installation Guideline
 
 ```
-git clone git@github.com:Arithmer/cifar.git [-b <branch_name>]
+git clone git@github.com:Anuj040/cifar.git [-b <branch_name>]
 cd cifar (Work Directory)
 
 # local environment settings
