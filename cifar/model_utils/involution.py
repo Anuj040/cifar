@@ -90,7 +90,7 @@ def involution(
     Involution: Inverting the Inherence of Convolution for Visual Recognition
 
     Args:
-        filters (int): number of filters for the incoming and outgoing tensor
+        filters (int): number of filters for the incoming and outgoing tensor. Default 32
         kernel_size (int): kernel size for the involution
         strides (int, optional): strides for involution. Defaults to 1.
         reduction (int, optional): channel reduction for dynamic weights calculation. Defaults to 4.
@@ -131,7 +131,7 @@ def involution(
         out = tf.image.extract_patches(
             input_tensor,
             sizes=[1, kernel_size, kernel_size, 1],
-            strides=[1, 1, 1, 1],
+            strides=[1, strides, strides, 1],
             rates=[1, 1, 1, 1],
             padding="SAME",
         )
@@ -161,7 +161,8 @@ def involution(
 
 
 if __name__ == "__main__":
-    a = tf.random.uniform(shape=(2, 224, 224, 32), dtype=tf.float32)
+    channels = 128
+    a = tf.random.uniform(shape=(2, 16, 16, channels), dtype=tf.float32)
 
-    model = involution(32, 7)
-    print(model(a))
+    model = involution(channels, 3, strides=2)
+    print(model(a).shape)
