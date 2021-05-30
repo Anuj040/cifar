@@ -12,6 +12,7 @@ import tensorflow.keras.models as KM
 from keras_drop_block import DropBlock2D
 from tensorflow.python.keras.callbacks import Callback, ModelCheckpoint
 
+from cifar.model_utils.involution import involution
 from cifar.utils.callbacks import EvalCallback
 from cifar.utils.generator import DataGenerator
 from cifar.utils.losses import MultiLayerAccuracy, contrastive_loss, multi_layer_focal
@@ -35,6 +36,7 @@ def deconv_block(input_tensor: tf.Tensor, features: int, name: str) -> tf.Tensor
         int(features // 2),
         1,
         strides=(1, 1),
+        use_bias=False,
         name=name + f"_c{1}",
     )(input_tensor)
     out = KL.Activation("relu")(KL.BatchNormalization()(out))
@@ -43,6 +45,7 @@ def deconv_block(input_tensor: tf.Tensor, features: int, name: str) -> tf.Tensor
         int(features // 2),
         (4, 4),
         strides=(2, 2),
+        use_bias=False,
         padding="same",
         name=name + f"_d",
     )(out)
@@ -52,6 +55,7 @@ def deconv_block(input_tensor: tf.Tensor, features: int, name: str) -> tf.Tensor
         features,
         1,
         strides=(1, 1),
+        use_bias=False,
         name=name + f"_c{2}",
     )(out)
     out = KL.Activation("relu")(KL.BatchNormalization()(out))
@@ -91,14 +95,9 @@ def conv_block(
     )(input_tensor)
     out = KL.Activation("relu")(KL.BatchNormalization()(out))
 
-    out = KL.Conv2D(
-        features_in,
-        3,
-        strides=(2, 2),
-        padding="same",
-        use_bias=False,
-        name=name + f"_c{2}",
-    )(out)
+    out = involution(features_in, 3, strides=2, group_channels=4, name=name + f"_c{2}")(
+        out
+    )
     out = KL.Activation("relu")(KL.BatchNormalization()(out))
 
     out = KL.Conv2D(

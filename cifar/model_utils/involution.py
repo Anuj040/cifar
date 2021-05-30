@@ -91,7 +91,7 @@ def involution(
 
     Args:
         filters (int): number of filters for the incoming and outgoing tensor. Default 32
-        kernel_size (int): kernel size for the involution
+        kernel_size (int): kernel size for the involution. Default 3
         strides (int, optional): strides for involution. Defaults to 1.
         reduction (int, optional): channel reduction for dynamic weights calculation. Defaults to 4.
         group_channels (int, optional): number of channels in a group. Defaults to 16.
