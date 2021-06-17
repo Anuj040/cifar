@@ -1,7 +1,5 @@
 """Module implementing custom model.fit for combined model training"""
 
-from textwrap import indent
-from typing import Tuple
 import tensorflow as tf
 import tensorflow.keras.layers as KL
 import tensorflow.keras.models as KM
@@ -26,7 +24,7 @@ class LossThreshhold(KL.Layer):
             percentile (float, optional): percentile for thresholding. Defaults to 66.67.
             name (str, optional): name for the tensor. Defaults to "thresh".
             alpha (float, optional): decay value for moving average. Defaults to 0.9.
-            moving_thresh_initializer (float, optional): Initial loss threshold. Use experience to tune this.
+            moving_thresh_initializer (float): Initial loss threshold. Use experience to tune this.
                                                         Defaults to 8.0
         """
         super().__init__(trainable=False, name=name, **kwargs)
@@ -38,7 +36,7 @@ class LossThreshhold(KL.Layer):
 
     def build(self, input_shape):
         """build the layer"""
-        shape = (1,)
+        shape = ()
         self.moving_thresh = self.add_weight(
             shape=shape,
             name="moving_thresh",
@@ -53,7 +51,7 @@ class LossThreshhold(KL.Layer):
             inputs (tf.Tensor): sample wise loss values for a given batch
 
         Returns:
-            tf.Tensor (shape = (1,)): loss threshold value for importance sampling
+            tf.Tensor (shape = ()): loss threshold value for importance sampling
         """
         batch_loss_thresh = tfp.stats.percentile(
             inputs, q=self.percentile, axis=[0], interpolation="linear"
@@ -75,12 +73,101 @@ class LossThreshhold(KL.Layer):
         config = {
             "alpha": self.alpha,
             "moving_thresh_initializer": self.moving_thresh_initializer,
+            "percentile": self.percentile,
+            "threshhold": self.moving_thresh,
         }
         return dict(list(base_config.items()) + list(config.items()))
 
     def compute_output_shape(self, input_shape: tuple) -> tuple:
         """shape of the layer output"""
-        return (1,)
+        return ()
+
+
+class NLossThreshhold(KL.Layer):
+    """custom layer for storing history of last "m" batches and returning top
+    n-th percentile of the value tensor."""
+
+    def __init__(
+        self,
+        max_no_values: int,
+        name: str = "thresh",
+        percentile: float = 66.7,
+        **kwargs
+    ):
+        """Layer initialization
+
+        Args:
+            max_no_values (int): Last 'm' number of batches to be stored
+            name (str, optional): name for the tensor. Defaults to "thresh".
+            percentile (float, optional): percentile for thresholding. Defaults to 66.67.
+        """
+        super().__init__(trainable=False, name=name, **kwargs)
+        self.max_factor = max_no_values
+        self.percentile = percentile
+        self.moving_thresh_initializer = tf.zeros_initializer()
+
+    def build(self, input_shape):
+        """build the layers"""
+        self.loss_holder = self.add_weight(
+            shape=self.max_factor * input_shape[0],
+            name="moving_thresh",
+            initializer=self.moving_thresh_initializer,
+            trainable=False,
+        )
+        self.moving_thresh = self.add_weight(
+            shape=(),
+            name="moving_thresh",
+            initializer=self.moving_thresh_initializer,
+            trainable=False,
+        )
+        return super().build(input_shape)
+
+    def call(self, inputs: tf.Tensor) -> tf.Tensor:
+        """call method on the layer
+        Args:
+            inputs (tf.Tensor): sample wise loss values for a given batch
+
+        Returns:
+            tf.Tensor (shape = ()): loss threshold value for importance sampling
+        """
+
+        temp_loss_holder = tf.concat(values=[self.loss_holder, inputs], axis=0)
+
+        temp_loss_holder = tf.slice(
+            temp_loss_holder,
+            begin=[tf.shape(inputs)[0]],
+            size=[self.max_factor * tf.shape(inputs)[0]],
+        )
+        self.loss_holder = tf_state_ops.assign(self.loss_holder, temp_loss_holder)
+
+        self.moving_thresh = tf_state_ops.assign(
+            self.moving_thresh,
+            tfp.stats.percentile(
+                self.loss_holder, q=self.percentile, axis=[0], interpolation="linear"
+            ),
+            # use_locking=self._use_locking,
+        )
+        return self.moving_thresh
+
+    def get_config(self) -> dict:
+        """Setting up the layer config
+
+        Returns:
+            dict: config key-value pairs
+        """
+        base_config = super().get_config()
+        config = {
+            "max_no_values": self.max_factor,
+            "moving_thresh_initializer": self.moving_thresh_initializer,
+            "percentile": self.percentile,
+            "threshhold": self.moving_thresh,
+            "held_values": self.loss_holder,
+        }
+        return dict(list(base_config.items()) + list(config.items()))
+
+    def compute_output_shape(self, input_shape: tuple) -> tuple:
+        """shape of the layer output"""
+        return ()
 
 
 class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
@@ -100,7 +187,7 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
             inputs=self.combined.input,
             outputs=self.combined.get_layer("logits").output,
         )
-        self.loss_thresh = LossThreshhold()
+        self.loss_thresh = NLossThreshhold(max_no_values=10)
 
     def compile(
         self,
@@ -152,87 +239,37 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
         inputs: tf.Tensor,
         outputs: tf.Tensor,
         losses: tf.Tensor,
+        loss_threshold: tf.Tensor,
         batch_size: tf.Tensor,
-    ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
+    ) -> dict:
         """[summary]
 
         Args:
             inputs (tf.Tensor): [description]
             outputs (tf.Tensor): [description]
             losses (tf.Tensor): [description]
-            batch_size (tf.Tensor): [description]
+            loss_threshold (tf.Tensor): [description]
+            batch_size (tf.tensor)
 
         Returns:
-            Tuple[tf.Tensor, tf.Tensor, tf.Tensor]: [description]
+            dict: batch logs
         """
-
-        # selecting top 1/3rd lossy samples
-        # loss_threshold = tfp.stats.percentile(
-        #     losses, q=66.67, axis=[0], interpolation="linear"
-        # )
-        # selecting based on mving average of top 67 percentile loss values
-        loss_threshold = self.loss_thresh(losses)
-
-        batch_size = tf.cast(batch_size, tf.int64)[0]
-
         # get the indices for samples with loss > threshold
         indices = tf.where(losses[:batch_size] >= loss_threshold)
 
         # batch size for the filtered batch
-        batch_size_apparent = tf.shape(indices)[0]
-        batch_size_apparent = tf.cast(batch_size_apparent, dtype=tf.float32)
+        batch_size_apparent = tf.cast(tf.shape(indices)[0], dtype=tf.float32)
 
         # indices for the image pairs for contrastive loss
         # TODO: general and special case
         indices = tf.concat(values=[indices, indices + batch_size], axis=0)
 
         # filtered input-output pairs
-        return (
+        images, outputs = (
             tf.gather_nd(inputs, indices),
             tuple(tf.gather_nd(output, indices) for output in outputs),
-            batch_size_apparent,
         )
-
-    def train_step(self, data: tf.Tensor) -> dict:
-        """method to implement a training step on the combined model
-
-        Args:
-            data (tf.Tensor): a batch instance consisting of input-output pair
-
-        Returns:
-            dict: dict object containing batch performance parameters
-        """
-        # unpack the data
-        images, outputs = data
-
-        # Filter out the most lossy samples
-        # get the model outputs
-        model_outputs = self.combined(images, training=False)
-
-        losses = 0.0
-        # calculate losses
-        for i, key in enumerate(self.loss_keys):
-            # weighted representative losses for each sample
-            losses += (
-                self.loss[key](outputs[i], model_outputs[i]) * self.loss_weights[key]
-            )
-
-        # get the batch_size
-        # for contrastive loss need to pick the image pairs
-        # TODO: make it general with contrastive loss as a special case
-        batch_size = 0.5 * tf.cast(tf.shape(losses), dtype=tf.float32)
-
-        # if gap between min and max loss large
-        # prepare a batch only of high loss samples
-        (images, outputs, batch_size_apparent) = tf.cond(
-            # gap b/w min & max loss controls the use of selective backprop
-            tf.greater(tf.math.reduce_min(losses), 0.20 * tf.math.reduce_max(losses)),
-            # true cond.
-            lambda: (images, outputs, batch_size),
-            # false cond.: pass through importance sampler
-            lambda: self.importance_sampler(images, outputs, losses, batch_size),
-        )
-
+        batch_size = tf.cast(batch_size, tf.float32)
         # Train the combined model only on the selected samples
         with tf.GradientTape() as tape:
 
@@ -278,6 +315,76 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
         del tape
         return logs
 
+    def skip_train(self) -> dict:
+        """method for generating a dummy logs dictionary for skipped batches
+
+        Returns:
+            dict:
+        """
+        # prepare the zero-logs dictionary
+        logs = dict(zip(self.loss_keys, [0.0] * len(self.loss_keys)))
+        # Add metrics if applicable
+        for _, key in enumerate(self.loss_keys):
+            metric_func = self.loss_metrics[key]
+
+            # Unpdated metrics value
+            if metric_func is not None:
+                logs[metric_func.name] = metric_func.result()
+        return logs
+
+    def train_step(self, data: tf.Tensor) -> dict:
+        """method to implement a training step on the combined model
+
+        Args:
+            data (tf.Tensor): a batch instance consisting of input-output pair
+
+        Returns:
+            dict: dict object containing batch performance parameters
+        """
+        # unpack the data
+        images, outputs = data
+
+        # Filter out the most lossy samples
+        # get the model outputs
+        model_outputs = self.combined(images, training=False)
+
+        losses = 0.0
+        # calculate losses
+        for i, key in enumerate(self.loss_keys):
+            # weighted representative losses for each sample
+            losses += (
+                self.loss[key](outputs[i], model_outputs[i]) * self.loss_weights[key]
+            )
+
+        # get the batch_size
+        # for contrastive loss need to pick the image pairs
+        # TODO: make it general with contrastive loss as a special case
+        batch_size = 0.5 * tf.cast(tf.shape(losses), dtype=tf.float32)
+        batch_size = tf.cast(batch_size, tf.int64)[0]
+
+        # Get the batch loss threshold
+        batch_loss_threshold = tfp.stats.percentile(
+            losses[:batch_size], q=66.67, axis=[0], interpolation="linear"
+        )
+        # batch_loss_threshold = tf.reduce_max(losses[:batch_size])
+        # Get the hitorical threshold
+        loss_threshold = self.loss_thresh(losses[:batch_size])
+
+        # if gap between min and max loss large
+        # prepare a batch only of high loss samples
+        logs = tf.cond(
+            # gap b/w min & max loss controls the use of selective backprop
+            tf.greater(loss_threshold, batch_loss_threshold),
+            # true cond.
+            lambda: self.skip_train(),
+            # false cond.: pass through importance sampler
+            lambda: self.importance_sampler(
+                images, outputs, losses, loss_threshold, batch_size
+            ),
+        )
+
+        return logs
+
     @property
     def metrics(self):
         # list `Metric` objects here so that `reset_states()` can be
@@ -318,8 +425,9 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
 
 if __name__ == "__main__":
     # trainer = Trainer()
-    layer = LossThreshhold()
-    for _ in range(10):
-        a = tf.random.uniform(shape=(15, 1))
+    layer = NLossThreshhold(max_no_values=20, moving_thresh_initializer=7)
+    # layer = LossThreshhold()
+    for _ in range(100):
+        a = 3.0 + 2.0 * tf.random.uniform(shape=(15,))
         b = layer(a)
         print(b)
