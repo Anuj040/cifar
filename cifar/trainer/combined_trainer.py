@@ -16,7 +16,7 @@ class LossThreshhold(KL.Layer):
         name: str = "thresh",
         alpha: float = 0.9,
         moving_thresh_initializer: float = 8.0,
-        **kwargs
+        **kwargs,
     ):
         """Layer initialization
 
@@ -92,7 +92,7 @@ class NLossThreshhold(KL.Layer):
         max_no_values: int,
         name: str = "thresh",
         percentile: float = 66.7,
-        **kwargs
+        **kwargs,
     ):
         """Layer initialization
 
@@ -170,7 +170,141 @@ class NLossThreshhold(KL.Layer):
         return ()
 
 
-class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
+class BatchMaker(KL.Layer):
+    """custom layer for aggregating samples across batches"""
+
+    def __init__(self, batch_size: int = 32, name: str = "select_batch", **kwargs):
+        super().__init__(trainable=False, name=name, **kwargs)
+        self.batch_size = tf.cast(batch_size, tf.int32)
+
+    def build(self, input_shapes):
+        """layer for holding the samples of interest"""
+
+        # Aggregate batch shape
+        model_inputs_batch_shape = (self.batch_size,)
+        # Looping over all the dimensions
+        for i in range(1, len(input_shapes[0])):
+            model_inputs_batch_shape = model_inputs_batch_shape + (input_shapes[0][i],)
+
+        self.model_inputs_holder = self.add_weight(
+            shape=model_inputs_batch_shape,
+            name="model_inputs",
+            initializer=tf.zeros_initializer(),
+            trainable=False,
+        )
+        # Outputs list # For mulitple outputs case
+        if isinstance(input_shapes[1], (list, tuple)):
+            self.model_outputs_holder = []
+            for out_num, model_output in enumerate(input_shapes[1]):
+                # Aggregate batch shape
+                batch_shape = (self.batch_size,)
+                # Looping over all the dimensions
+                for dim_num in range(1, len(model_output)):
+                    batch_shape = batch_shape + (model_output[dim_num],)
+
+                self.model_outputs_holder.append(
+                    self.add_weight(
+                        shape=batch_shape,
+                        name=f"model_outputs_{out_num}",
+                        initializer=tf.zeros_initializer(),
+                        trainable=False,
+                    )
+                )
+        else:
+            # Aggregate batch shape
+            batch_shape = (self.batch_size,)
+            # Looping over all the dimensions
+            for dim_num in range(1, len(input_shapes[1])):
+                batch_shape = batch_shape + (input_shapes[1][dim_num],)
+
+            self.model_outputs_holder = self.add_weight(
+                shape=batch_shape,
+                name=f"model_outputs",
+                initializer=tf.zeros_initializer(),
+                trainable=False,
+            )
+
+        # Counter for number of samples aggreagated in the current batch being built
+        self.fresh_sample_counter = self.add_weight(
+            shape=(),
+            name="sample_counter",
+            initializer=tf.zeros_initializer(),
+            trainable=False,
+            dtype=self.batch_size.dtype,
+        )
+        # Boolean for train step execution
+        self.run_train_step = self.add_weight(
+            shape=(),
+            name="train_bool",
+            initializer=tf.ones_initializer(),
+            trainable=False,
+            dtype=tf.bool,
+        )
+        return super().build(input_shapes)
+
+    def call(self, inputs: tf.Tensor) -> tf.Tensor:
+        if not isinstance(inputs, list) or len(inputs) <= 1:
+            raise Exception(
+                "Batchmaker must be called on a list of tensors "
+                "Input 0: Model Inputs, Input 1: Model Outputs. Got: " + str(inputs)
+            )
+        images = inputs[0]
+        model_outputs = inputs[1]
+        incoming_batch_size = tf.shape(images)[0]
+
+        temp_counter = tf.cond(
+            self.run_train_step,
+            lambda: incoming_batch_size,
+            lambda: self.fresh_sample_counter + incoming_batch_size,
+        )
+
+        self.fresh_sample_counter = tf_state_ops.assign(
+            self.fresh_sample_counter, temp_counter
+        )
+
+        temp_inputs_holder = tf.concat(
+            values=[images, self.model_inputs_holder], axis=0
+        )
+        self.model_inputs_holder = tf_state_ops.assign(
+            self.model_inputs_holder, temp_inputs_holder[: self.batch_size]
+        )
+
+        # Outputs list # For mulitple outputs case
+        if isinstance(model_outputs, (tuple, list)):
+            temp_outputs_holder = [
+                tf.concat(
+                    values=[model_outputs[i], self.model_outputs_holder[i]], axis=0
+                )
+                for i in range(len(model_outputs))
+            ]
+            self.model_outputs_holder = [
+                tf_state_ops.assign(
+                    self.model_outputs_holder[i],
+                    temp_outputs_holder[i][: self.batch_size],
+                )
+                for i in range(len(model_outputs))
+            ]
+        else:
+            temp_outputs_holder = tf.concat(
+                values=[model_outputs, self.model_outputs_holder], axis=0
+            )
+            self.model_outputs_holder = tf_state_ops.assign(
+                self.model_outputs_holder,
+                temp_outputs_holder[: self.batch_size],
+            )
+
+        self.run_train_step = tf_state_ops.assign(
+            self.run_train_step, tf.greater(self.fresh_sample_counter, self.batch_size)
+        )
+        return (
+            temp_inputs_holder,
+            temp_outputs_holder,
+            self.run_train_step,
+        )
+
+
+# pylint: disable=too-many-ancestors, too-many-instance-attributes
+class Trainer(KM.Model):
     """Custom function for combined training of classifier/autoencoder using model.fit()
         With functionality for selective back propagation for accelerated training.
 
@@ -178,7 +312,7 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
         combined (KM.Model): combined classifier/autoencoder model
     """
 
-    def __init__(self, combined: KM.Model) -> None:
+    def __init__(self, combined: KM.Model, train_batch_size: int) -> None:
         super().__init__()
         self.combined = combined
 
@@ -188,6 +322,10 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
             outputs=self.combined.get_layer("logits").output,
         )
         self.loss_thresh = NLossThreshhold(max_no_values=10)
+        self.batch_maker_layer = BatchMaker(batch_size=train_batch_size)
+        self.batch_maker_contrastive_pair = BatchMaker(
+            batch_size=train_batch_size, name="select_batch_contrast"
+        )
 
     def compile(
         self,
@@ -234,42 +372,103 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
 
         return self.classifier_model(inputs, training=False)
 
-    def importance_sampler(
+    def batch_aggregator(
         self,
         inputs: tf.Tensor,
-        outputs: tf.Tensor,
-        losses: tf.Tensor,
-        loss_threshold: tf.Tensor,
+        gt_outputs: tf.Tensor,
+        indices: tf.Tensor,
         batch_size: tf.Tensor,
     ) -> dict:
         """[summary]
 
         Args:
             inputs (tf.Tensor): [description]
-            outputs (tf.Tensor): [description]
-            losses (tf.Tensor): [description]
-            loss_threshold (tf.Tensor): [description]
+            gt_outputs (tf.Tensor): [description]
+            indices (tf.Tensor): indices for the selected samples from a given batch
             batch_size (tf.tensor)
 
         Returns:
             dict: batch logs
         """
-        # get the indices for samples with loss > threshold
-        indices = tf.where(losses[:batch_size] >= loss_threshold)
-
-        # batch size for the filtered batch
-        batch_size_apparent = tf.cast(tf.shape(indices)[0], dtype=tf.float32)
-
-        # indices for the image pairs for contrastive loss
-        # TODO: general and special case
-        indices = tf.concat(values=[indices, indices + batch_size], axis=0)
 
         # filtered input-output pairs
         images, outputs = (
             tf.gather_nd(inputs, indices),
-            tuple(tf.gather_nd(output, indices) for output in outputs),
+            tuple(tf.gather_nd(output, indices) for output in gt_outputs),
         )
+        images_aggregate, outputs_aggregate, train_bool = self.batch_maker_layer(
+            [images, outputs]
+        )
+
+        # for contrastive loss need to pick the image pairs
+        # TODO: general and special case
+        # filtered complimentary contrastive (input-output) pairs
+        images_contrast, outputs_contrast = (
+            tf.gather_nd(inputs, indices + batch_size),
+            tuple(tf.gather_nd(output, indices + batch_size) for output in gt_outputs),
+        )
+        (
+            images_contrast_aggregate,
+            outputs_contrast_aggregate,
+            train_bool,
+        ) = self.batch_maker_contrastive_pair([images_contrast, outputs_contrast])
+
+        # Combined batch
+        logs = tf.cond(
+            train_bool,
+            lambda: self.selective_backprop(
+                tf.concat([images_aggregate, images_contrast_aggregate], axis=0),
+                tuple(
+                    tf.concat(
+                        [outputs_aggregate[i], outputs_contrast_aggregate[i]], axis=0
+                    )
+                    for i in range(len(outputs_aggregate))
+                ),
+                batch_size,
+            ),
+            lambda: self.skip_train(),
+        )
+
+        return logs
+
+    def skip_train(self) -> dict:
+        """method for generating a dummy logs dictionary for skipped batches
+
+        Returns:
+            dict:
+        """
+        # prepare the zero-logs dictionary
+        logs = dict(zip(self.loss_keys, [0.0] * len(self.loss_keys)))
+        # Add metrics if applicable
+        for _, key in enumerate(self.loss_keys):
+            metric_func = self.loss_metrics[key]
+
+            # Unpdated metrics value
+            if metric_func is not None:
+                logs[metric_func.name] = metric_func.result()
+        return logs
+
+    def selective_backprop(
+        self, images: tf.Tensor, outputs: tf.Tensor, batch_size: tf.Tensor
+    ) -> dict:
+        """[summary]
+
+        Args:
+            images (tf.Tensor): [description]
+            outputs (tf.Tensor): [description]
+            batch_size (tf.Tensor): [description]
+
+        Returns:
+            dict: [description]
+        """
+        # Defined batch size
         batch_size = tf.cast(batch_size, tf.float32)
+
+        # Apparent batch_size: slightly different from 'batch size' as selected samples
+        # may vary from batch to batch
+        # TODO: make it general with contrastive loss as a special case
+        batch_size_apparent = 0.5 * tf.cast(tf.shape(images), dtype=tf.float32)
+
         # Train the combined model only on the selected samples
         with tf.GradientTape() as tape:
 
@@ -315,23 +514,6 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
         del tape
         return logs
 
-    def skip_train(self) -> dict:
-        """method for generating a dummy logs dictionary for skipped batches
-
-        Returns:
-            dict:
-        """
-        # prepare the zero-logs dictionary
-        logs = dict(zip(self.loss_keys, [0.0] * len(self.loss_keys)))
-        # Add metrics if applicable
-        for _, key in enumerate(self.loss_keys):
-            metric_func = self.loss_metrics[key]
-
-            # Unpdated metrics value
-            if metric_func is not None:
-                logs[metric_func.name] = metric_func.result()
-        return logs
-
     def train_step(self, data: tf.Tensor) -> dict:
         """method to implement a training step on the combined model
 
@@ -370,6 +552,9 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
         # Get the hitorical threshold
         loss_threshold = self.loss_thresh(losses[:batch_size])
 
+        # get the indices for samples with loss > threshold
+        indices = tf.where(losses[:batch_size] >= loss_threshold)
+
         # if gap between min and max loss large
         # prepare a batch only of high loss samples
         logs = tf.cond(
@@ -378,9 +563,7 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
             # true cond.
             lambda: self.skip_train(),
             # false cond.: pass through importance sampler
-            lambda: self.importance_sampler(
-                images, outputs, losses, loss_threshold, batch_size
-            ),
+            lambda: self.batch_aggregator(images, outputs, indices, batch_size),
         )
 
         return logs
@@ -425,9 +608,11 @@ class Trainer(KM.Model):  # pylint: disable=too-many-ancestors
 
 if __name__ == "__main__":
     # trainer = Trainer()
-    layer = NLossThreshhold(max_no_values=20, moving_thresh_initializer=7)
-    # layer = LossThreshhold()
-    for _ in range(100):
-        a = 3.0 + 2.0 * tf.random.uniform(shape=(15,))
-        b = layer(a)
-        print(b)
+    # layer = NLossThreshhold(max_no_values=20, moving_thresh_initializer=7)
+
+    # # layer = LossThreshhold()
+    layer = BatchMaker(batch_size=8)
+    for _ in range(5):
+        a = tf.random.uniform(shape=(3, 4, 4, 1))
+        b = tf.random.uniform(shape=(3,))
+        c = layer([a, [a, b]])
