@@ -515,8 +515,12 @@ class DataGenerator:
         if self.contrast:
             if self.train_mode == "combined":
                 # image, (image, one-hot label * 4, dummy variable)
-                return input_1, (input_1, input_2, np.zeros((2 * self.batch_size)))
-            return input_1, (input_2, np.zeros((2 * self.batch_size)))
+                return input_1, (
+                    input_1,
+                    input_2,
+                    np.zeros((2 * self.batch_size), dtype=np.float32),
+                )
+            return input_1, (input_2, np.zeros((2 * self.batch_size), dtype=np.float32))
         else:
             if self.train_mode == "combined":
                 # image, (image, one-hot label * 4 )
