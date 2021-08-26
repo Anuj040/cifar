@@ -1,6 +1,5 @@
 import os
 import re
-import sys
 from typing import List, Tuple
 
 import numpy as np
@@ -787,7 +786,7 @@ class Cifar:
         cache: bool = False,
     ):
         # create trainer object
-        com_train = Trainer(combined=self.combined)
+        com_train = Trainer(combined=self.combined, train_batch_size=train_batch_size)
 
         ## prepare compile args.
         # optimizer

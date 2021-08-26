@@ -309,12 +309,4 @@ class Trainer(KM.Model):
 
 
 if __name__ == "__main__":
-    # trainer = Trainer()
-    # layer = NLossThreshhold(max_no_values=20, moving_thresh_initializer=7)
-
-    # # layer = LossThreshhold()
-    layer = BatchMaker(batch_size=8)
-    for _ in range(5):
-        a = tf.random.uniform(shape=(3, 4, 4, 1))
-        b = tf.random.uniform(shape=(3,))
-        c = layer([a, [a, b]])
+    trainer = Trainer()

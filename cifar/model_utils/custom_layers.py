@@ -108,9 +108,10 @@ class NLossThreshhold(KL.Layer):
 
     def build(self, input_shape):
         """build the layers"""
+        self.max_values = self.max_factor * input_shape[0]
         self.loss_holder = self.add_weight(
-            shape=self.max_factor * input_shape[0],
-            name="moving_thresh",
+            shape=self.max_values,
+            name="loss_array",
             initializer=self.moving_thresh_initializer,
             trainable=False,
         )
@@ -119,6 +120,15 @@ class NLossThreshhold(KL.Layer):
             name="moving_thresh",
             initializer=self.moving_thresh_initializer,
             trainable=False,
+        )
+
+        # Counter for latest updated indices
+        self.index_pointer = self.add_weight(
+            shape=(),
+            name="current_pointer",
+            initializer=tf.zeros_initializer(),
+            trainable=False,
+            dtype=tf.int32,
         )
         return super().build(input_shape)
 
@@ -130,15 +140,17 @@ class NLossThreshhold(KL.Layer):
         Returns:
             tf.Tensor (shape = ()): loss threshold value for importance sampling
         """
-
-        temp_loss_holder = tf.concat(values=[self.loss_holder, inputs], axis=0)
-
-        temp_loss_holder = tf.slice(
-            temp_loss_holder,
-            begin=[tf.shape(inputs)[0]],
-            size=[self.max_factor * tf.shape(inputs)[0]],
+        incoming_batch_size = tf.shape(inputs)[0]
+        temp_counter = self.index_pointer + incoming_batch_size
+        start_index, end_index = tf.cond(
+            tf.greater(temp_counter, self.max_values),
+            lambda: (tf.zeros((), dtype=tf.int32), incoming_batch_size),
+            lambda: (self.index_pointer, temp_counter),
         )
-        tf_state_ops.assign(self.loss_holder, temp_loss_holder)
+        replace_indices = tf.range(start_index, end_index)
+
+        tf.compat.v1.scatter_update(self.loss_holder, replace_indices, inputs)
+
         tf_state_ops.assign(
             self.moving_thresh,
             tfp.stats.percentile(
@@ -146,6 +158,7 @@ class NLossThreshhold(KL.Layer):
             ),
             # use_locking=self._use_locking,
         )
+        tf_state_ops.assign(self.index_pointer, end_index)
         return self.moving_thresh
 
     def get_config(self) -> dict:
@@ -330,3 +343,15 @@ class BatchMaker(KL.Layer):
             temp_outputs_holder,
             self.run_train_step,
         )
+
+
+if __name__ == "__main__":
+    layer = NLossThreshhold(max_no_values=3)
+
+    # # layer = LossThreshhold()
+    # layer = BatchMaker(batch_size=8)
+    for _ in range(50):
+        # a = tf.random.uniform(shape=(3, 4, 4, 1))
+        b = tf.random.uniform(shape=(3,))
+        c = layer(b)
+        print(c)
